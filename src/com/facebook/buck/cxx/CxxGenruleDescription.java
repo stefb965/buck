@@ -51,7 +51,6 @@ import com.google.common.base.CaseFormat;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -445,7 +444,7 @@ public class CxxGenruleDescription
         ImmutableList<BuildTarget> input)
         throws MacroException {
       return FluentIterable.from(super.resolve(resolver, input))
-          .filter(Predicates.instanceOf(CxxPreprocessorDep.class))
+          .filter(CxxPreprocessorDep.class::isInstance)
           .toList();
     }
 
@@ -589,7 +588,7 @@ public class CxxGenruleDescription
                       pathResolver,
                       cxxPlatform,
                       rules,
-                      Predicates.instanceOf(NativeLinkable.class)));
+                      NativeLinkable.class::isInstance));
         } catch (NoSuchBuildTargetException e) {
           throw new MacroException(
               String.format("cannot create shared library symlink tree: %s: %s", e, e.getMessage()),
@@ -637,7 +636,7 @@ public class CxxGenruleDescription
                     .filter(NativeLinkable.class),
                 depType,
                 !filter.isPresent() ?
-                    Predicates.alwaysTrue() :
+                    x -> true :
                     input -> {
                       Preconditions.checkArgument(input instanceof BuildRule);
                       BuildRule rule = (BuildRule) input;
@@ -666,7 +665,7 @@ public class CxxGenruleDescription
         ImmutableList<BuildTarget> input)
         throws MacroException {
       return FluentIterable.from(super.resolve(resolver, input))
-          .filter(Predicates.instanceOf(NativeLinkable.class))
+          .filter(NativeLinkable.class::isInstance)
           .toList();
     }
 
@@ -711,7 +710,7 @@ public class CxxGenruleDescription
       ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
       deps.addAll(
           FluentIterable.from(getLinkerArgs(resolver, rules, filter))
-              .transformAndConcat(com.facebook.buck.rules.args.Arg.getDepsFunction(pathResolver)));
+              .transformAndConcat(arg -> arg.getDeps(pathResolver)));
       if (depType == Linker.LinkableDepType.SHARED) {
         deps.add(requireSymlinkTree(resolver, rules));
       }

@@ -19,10 +19,10 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.MatcherAssert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -30,7 +30,6 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -251,7 +250,7 @@ public class NativeLinkablesTest {
         NativeLinkables.getTransitiveSharedLibraries(
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableList.of(a),
-            Predicates.instanceOf(NativeLinkable.class));
+            NativeLinkable.class::isInstance);
     assertThat(
         sharedLibs,
         Matchers.equalTo(
@@ -340,7 +339,7 @@ public class NativeLinkablesTest {
     NativeLinkables.getTransitiveSharedLibraries(
         CxxPlatformUtils.DEFAULT_PLATFORM,
         ImmutableList.of(a, b),
-        Predicates.instanceOf(NativeLinkable.class));
+        NativeLinkable.class::isInstance);
   }
 
   @Test
@@ -366,7 +365,7 @@ public class NativeLinkablesTest {
         NativeLinkables.getTransitiveSharedLibraries(
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableList.of(a, b),
-            Predicates.instanceOf(NativeLinkable.class));
+            NativeLinkable.class::isInstance);
     assertThat(
         sharedLibs,
         Matchers.equalTo(ImmutableSortedMap.<String, SourcePath>of("libc.so", path)));
@@ -395,7 +394,7 @@ public class NativeLinkablesTest {
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableList.of(a),
             Linker.LinkableDepType.STATIC,
-            Predicates.alwaysTrue()),
+            x -> true),
         Matchers.equalTo(
             ImmutableMap.<BuildTarget, NativeLinkable>of(
                 a.getBuildTarget(), a,
@@ -405,7 +404,7 @@ public class NativeLinkablesTest {
             CxxPlatformUtils.DEFAULT_PLATFORM,
             ImmutableList.of(a),
             Linker.LinkableDepType.STATIC,
-            Predicates.equalTo(a)),
+            a::equals),
         Matchers.equalTo(ImmutableMap.<BuildTarget, NativeLinkable>of(a.getBuildTarget(), a)));
   }
 

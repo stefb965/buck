@@ -30,7 +30,6 @@ import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.zip.ZipConstants;
-import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -391,14 +390,14 @@ public class ProjectFilesystemTest {
     assertThat(
         filesystem.getFilesUnderPath(
             Paths.get("dir1"),
-            Predicates.alwaysTrue(),
+            x -> true,
             EnumSet.noneOf(FileVisitOption.class)),
         containsInAnyOrder(Paths.get("dir1/file2"), Paths.get("dir1/dir2/file3")));
 
     assertThat(
         filesystem.getFilesUnderPath(
             Paths.get("dir1"),
-            Predicates.equalTo(Paths.get("dir1/dir2/file3")),
+            Paths.get("dir1/dir2/file3")::equals,
             EnumSet.noneOf(FileVisitOption.class)),
         containsInAnyOrder(Paths.get("dir1/dir2/file3")));
 
@@ -409,7 +408,7 @@ public class ProjectFilesystemTest {
     assertThat(
         filesystem.getFilesUnderPath(
             Paths.get("dir1"),
-            Predicates.equalTo(Paths.get("dir1/file2"))),
+            Paths.get("dir1/file2")::equals),
         containsInAnyOrder(Paths.get("dir1/file2")));
   }
 
@@ -606,11 +605,11 @@ public class ProjectFilesystemTest {
     Path rootPath = tmp.getRoot();
     ProjectFilesystem filesystem = new ProjectFilesystem(rootPath, config);
     ImmutableSet<Path> ignorePaths = FluentIterable.from(filesystem.getIgnorePaths())
-        .filter(PathOrGlobMatcher.isPath())
-        .transform(PathOrGlobMatcher.toPath())
+        .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
+        .transform(PathOrGlobMatcher::getPath)
         .toSet();
     assertThat(
-        FluentIterable.from(ignorePaths).toSortedSet(Ordering.natural()),
+        ImmutableSortedSet.copyOf(Ordering.natural(), ignorePaths),
         equalTo(
             ImmutableSortedSet.of(
                 filesystem.getBuckPaths().getBuckOut(),
@@ -633,8 +632,8 @@ public class ProjectFilesystemTest {
     Path rootPath = tmp.getRoot();
     ImmutableSet<Path> ignorePaths =
         FluentIterable.from(new ProjectFilesystem(rootPath, config).getIgnorePaths())
-            .filter(PathOrGlobMatcher.isPath())
-            .transform(PathOrGlobMatcher.toPath())
+            .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
+            .transform(PathOrGlobMatcher::getPath)
             .toSet();
     assertThat(
         "Cache directory should be in set of ignored paths",

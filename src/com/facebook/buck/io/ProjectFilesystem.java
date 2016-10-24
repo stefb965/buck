@@ -28,7 +28,6 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -222,7 +221,7 @@ public class ProjectFilesystem {
                 ImmutableSet.of(
                     getCacheDir(root, Optional.of(buckPaths.getCacheDir().toString()), buckPaths)))
                 .append(ImmutableSet.of(buckPaths.getTrashDir()))
-                .transform(PathOrGlobMatcher.toPathMatcher()))
+                .transform(PathOrGlobMatcher::new))
         .toSet();
     this.buckPaths = buckPaths;
 
@@ -241,7 +240,7 @@ public class ProjectFilesystem {
         // TODO(#10068334) So we claim to ignore this path to preserve existing behaviour, but we
         // really don't end up ignoring it in reality (see extractIgnorePaths).
         .append(ImmutableSet.of(buckPaths.getBuckOut()))
-        .transform(PathOrGlobMatcher.toPathMatcher())
+        .transform(PathOrGlobMatcher::new)
         .append(
             Iterables.filter(
                 this.blackListedPaths,
@@ -328,7 +327,7 @@ public class ProjectFilesystem {
           }
         })
         // And now remove any null patterns
-        .filter(Predicates.notNull())
+        .filter(Objects::nonNull)
         .toList());
 
     return builder.build();
@@ -557,7 +556,7 @@ public class ProjectFilesystem {
   }
 
   public ImmutableSet<Path> getFilesUnderPath(Path pathRelativeToProjectRoot) throws IOException {
-    return getFilesUnderPath(pathRelativeToProjectRoot, Predicates.alwaysTrue());
+    return getFilesUnderPath(pathRelativeToProjectRoot, x -> true);
   }
 
   public ImmutableSet<Path> getFilesUnderPath(

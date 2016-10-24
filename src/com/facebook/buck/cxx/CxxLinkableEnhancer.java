@@ -45,6 +45,7 @@ import com.google.common.collect.Ordering;
 
 import java.nio.file.Path;
 import java.util.EnumSet;
+import java.util.Objects;
 import java.util.Optional;
 
 public class CxxLinkableEnhancer {
@@ -108,7 +109,7 @@ public class CxxLinkableEnhancer {
         params.copyWithChanges(
             target,
             () -> FluentIterable.from(allArgs)
-                .transformAndConcat(Arg.getDepsFunction(resolver))
+                .transformAndConcat(arg -> arg.getDeps(resolver))
                 .append(linker.getDeps(resolver))
                 .toSortedSet(Ordering.natural()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
@@ -158,7 +159,7 @@ public class CxxLinkableEnhancer {
     nativeLinkableInputs.add(immediateLinkableInput);
     for (NativeLinkable nativeLinkable : Maps.filterKeys(
         NativeLinkables.getNativeLinkables(cxxPlatform, nativeLinkableDeps, depType),
-        Predicates.not(Predicates.in(blacklist))).values()) {
+        Predicates.not(blacklist::contains)).values()) {
       NativeLinkableInput input = NativeLinkables.getNativeLinkableInput(
           cxxPlatform, depType, nativeLinkable);
       LOG.verbose("Native linkable %s returned input %s", nativeLinkable, input);
@@ -241,7 +242,7 @@ public class CxxLinkableEnhancer {
           public void appendToCommandLine(ImmutableCollection.Builder<String> builder) {
             ImmutableSortedSet<Path> searchPaths = FluentIterable.from(frameworkPaths)
                 .transform(frameworkPathToSearchPath)
-                .filter(Predicates.notNull())
+                .filter(Objects::nonNull)
                 .toSortedSet(Ordering.natural());
             for (Path searchPath : searchPaths) {
               builder.add("-L");

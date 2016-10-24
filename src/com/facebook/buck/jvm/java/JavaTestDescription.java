@@ -262,7 +262,7 @@ public class JavaTestDescription implements
       if (useCxxLibraries.orElse(false)) {
         SymlinkTree nativeLibsSymlinkTree =
             buildNativeLibsSymlinkTreeRule(params, pathResolver, cxxPlatform);
-        Predicate<BuildRule> shouldInclude = Predicates.alwaysTrue();
+        Predicate<BuildRule> shouldInclude = x -> true;
         if (!cxxLibraryWhitelist.isEmpty()) {
           shouldInclude = input -> cxxLibraryWhitelist.contains(
               input.getBuildTarget().withFlavors());
@@ -299,8 +299,8 @@ public class JavaTestDescription implements
           cxxPlatform,
           buildRuleParams.getDeps(),
           Predicates.or(
-              Predicates.instanceOf(NativeLinkable.class),
-              Predicates.instanceOf(JavaLibrary.class)));
+              NativeLinkable.class::isInstance,
+              JavaLibrary.class::isInstance));
     }
   }
 }

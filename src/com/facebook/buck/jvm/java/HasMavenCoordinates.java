@@ -34,7 +34,7 @@ public interface HasMavenCoordinates extends BuildRule {
    */
   Optional<String> getMavenCoords();
 
-  public static final Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
+  Predicate<BuildRule> MAVEN_COORDS_PRESENT_PREDICATE =
       input -> input instanceof HasMavenCoordinates &&
           ((HasMavenCoordinates) input).getMavenCoords().isPresent();
 
@@ -64,4 +64,8 @@ public interface HasMavenCoordinates extends BuildRule {
               m.group(7);        // version
         }
       };
+
+  static boolean isMavenCoordsPresent(HasMavenCoordinates input) {
+    return input.getMavenCoords().isPresent();
+  }
 }

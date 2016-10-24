@@ -35,7 +35,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -60,7 +59,7 @@ public class IjModuleFactory {
   /**
    * These target types are mapped onto .iml module files.
    */
-  private static final ImmutableSet<BuildRuleType> SUPPORTED_MODULE_TYPES = ImmutableSet.of(
+  public static final ImmutableSet<BuildRuleType> SUPPORTED_MODULE_TYPES = ImmutableSet.of(
       AndroidBinaryDescription.TYPE,
       AndroidLibraryDescription.TYPE,
       AndroidResourceDescription.TYPE,
@@ -70,9 +69,6 @@ public class IjModuleFactory {
       RobolectricTestDescription.TYPE,
       GroovyLibraryDescription.TYPE,
       GroovyTestDescription.TYPE);
-
-  public static final Predicate<TargetNode<?>> SUPPORTED_MODULE_TYPES_PREDICATE =
-      input -> SUPPORTED_MODULE_TYPES.contains(input.getType());
 
   /**
    * Provides the {@link IjModuleFactory} with {@link Path}s to various elements of the project.
@@ -473,10 +469,10 @@ public class IjModuleFactory {
     for (Map.Entry<Path, Collection<Path>> entry : foldersToInputsIndex.asMap().entrySet()) {
       context.addSourceFolder(
           factory.create(
-            entry.getKey(),
-            wantsPackagePrefix,
-            FluentIterable.from(entry.getValue()).toSortedSet(Ordering.natural())
-        )
+              entry.getKey(),
+              wantsPackagePrefix,
+              ImmutableSortedSet.copyOf(Ordering.natural(), entry.getValue())
+          )
       );
     }
   }

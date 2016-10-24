@@ -56,7 +56,6 @@ import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
@@ -86,9 +85,6 @@ import javax.annotation.Nullable;
 public class Build implements Closeable {
 
   private static final Logger LOG = Logger.get(Build.class);
-
-  private static final Predicate<BuildResult> RULES_FAILED_PREDICATE =
-      input -> input.getSuccess() == null;
 
   private final ActionGraph actionGraph;
   private final BuildRuleResolver ruleResolver;
@@ -322,7 +318,7 @@ public class Build implements Closeable {
     }
 
     return BuildExecutionResult.builder()
-        .setFailures(FluentIterable.from(results).filter(RULES_FAILED_PREDICATE))
+        .setFailures(FluentIterable.from(results).filter(input -> input.getSuccess() == null))
         .setResults(resultBuilder)
         .build();
   }

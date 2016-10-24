@@ -224,7 +224,7 @@ public class Omnibus {
         .roots(roots)
         .body(
             FluentIterable.from(graph.getNodes())
-                .filter(Predicates.not(Predicates.in(roots.keySet())))
+                .filter(Predicates.not(roots.keySet()::contains))
                 .toMap(Functions.forMap(nativeLinkables)))
         .deps(Maps.asMap(deps, Functions.forMap(nativeLinkables)))
         .excluded(Maps.asMap(excluded, Functions.forMap(nativeLinkables)))
@@ -527,7 +527,7 @@ public class Omnibus {
 
     // Walk the graph in topological order, appending each nodes contributions to the link.
     ImmutableList<BuildTarget> targets =
-        TopologicalSort.sort(spec.getGraph(), Predicates.alwaysTrue()).reverse();
+        TopologicalSort.sort(spec.getGraph(), x -> true).reverse();
     for (BuildTarget target : targets) {
 
       // If this is a root, just place the shared library we've linked above onto the link line.

@@ -42,7 +42,6 @@ import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -118,7 +117,7 @@ final class JavaBuildGraphProcessor {
                 executorService,
                 ImmutableList.of(
                     TargetNodePredicateSpec.of(
-                        Predicates.alwaysTrue(),
+                        x -> true,
                         BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
                 /* ignoreBuckAutodepsFiles */ true).getTargetGraph();
       } catch (BuildTargetException | BuildFileParseException e) {

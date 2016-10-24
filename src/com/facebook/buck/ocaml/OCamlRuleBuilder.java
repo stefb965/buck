@@ -37,7 +37,6 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
-import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.OCamlSource;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -47,7 +46,6 @@ import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -153,9 +151,9 @@ public class OCamlRuleBuilder {
     return TopologicalSort.sort(
         BuildRuleDependencyVisitors.getBuildRuleDirectedGraphFilteredBy(
             deps,
-            Predicates.instanceOf(OCamlLibrary.class),
-            Predicates.instanceOf(OCamlLibrary.class)),
-        Predicates.alwaysTrue());
+            OCamlLibrary.class::isInstance,
+            OCamlLibrary.class::isInstance),
+        x -> true);
   }
 
   private static NativeLinkableInput getNativeLinkableInput(Iterable<BuildRule> deps) {
@@ -189,7 +187,7 @@ public class OCamlRuleBuilder {
         cxxPlatform,
         deps,
         Linker.LinkableDepType.STATIC,
-        Predicates.instanceOf(OCamlLibrary.class));
+        OCamlLibrary.class::isInstance);
   }
 
   public static AbstractBuildRule createBulkBuildRule(
@@ -206,7 +204,7 @@ public class OCamlRuleBuilder {
           CxxPreprocessables.getTransitiveCxxPreprocessorInput(
               ocamlBuckConfig.getCxxPlatform(),
               FluentIterable.from(params.getDeps())
-                  .filter(Predicates.instanceOf(CxxPreprocessorDep.class))));
+                  .filter(CxxPreprocessorDep.class::isInstance)));
 
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
@@ -233,7 +231,7 @@ public class OCamlRuleBuilder {
         FluentIterable.from(nativeLinkableInput.getArgs())
             .append(bytecodeLinkableInput.getArgs())
             .append(cLinkableInput.getArgs())
-            .transformAndConcat(Arg.getDepsFunction(pathResolver)));
+            .transformAndConcat(arg -> arg.getDeps(pathResolver)));
     for (OCamlLibrary library : ocamlInput) {
       allDepsBuilder.addAll(library.getNativeCompileDeps());
       allDepsBuilder.addAll(library.getBytecodeCompileDeps());
@@ -355,7 +353,7 @@ public class OCamlRuleBuilder {
           CxxPreprocessables.getTransitiveCxxPreprocessorInput(
               ocamlBuckConfig.getCxxPlatform(),
               FluentIterable.from(params.getDeps())
-                  .filter(Predicates.instanceOf(CxxPreprocessorDep.class))));
+                  .filter(CxxPreprocessorDep.class::isInstance)));
 
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
 
@@ -387,13 +385,13 @@ public class OCamlRuleBuilder {
                 .addAll(pathResolver.filterBuildRuleInputs(getInput(srcs)))
                 .addAll(
                     FluentIterable.from(nativeLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+                        .transformAndConcat(arg -> arg.getDeps(pathResolver)))
                 .addAll(
                     FluentIterable.from(bytecodeLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+                        .transformAndConcat(arg -> arg.getDeps(pathResolver)))
                 .addAll(
                     FluentIterable.from(cLinkableInput.getArgs())
-                        .transformAndConcat(Arg.getDepsFunction(pathResolver)))
+                        .transformAndConcat(arg -> arg.getDeps(pathResolver)))
                 .addAll(
                     pathResolver.filterBuildRuleInputs(
                         ocamlBuckConfig.getCCompiler().resolve(resolver).getInputs()))

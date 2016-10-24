@@ -27,7 +27,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Ascii;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -37,6 +36,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -160,7 +160,7 @@ public class IjModuleGraph {
     ImmutableListMultimap<Path, TargetNode<?>> baseTargetPathMultimap =
         FluentIterable
           .from(targetGraph.getNodes())
-          .filter(IjModuleFactory.SUPPORTED_MODULE_TYPES_PREDICATE)
+          .filter(input -> IjModuleFactory.SUPPORTED_MODULE_TYPES.contains(input.getType()))
           .index(
               input -> {
                 Path basePath = input.getBuildTarget().getBasePath();
@@ -176,7 +176,7 @@ public class IjModuleGraph {
 
     for (Path baseTargetPath : baseTargetPathMultimap.keySet()) {
       ImmutableSet<TargetNode<?>> targets =
-          FluentIterable.from(baseTargetPathMultimap.get(baseTargetPath)).toSet();
+          ImmutableSet.copyOf(baseTargetPathMultimap.get(baseTargetPath));
 
       IjModule module = moduleFactory.createModule(baseTargetPath, targets);
 
@@ -272,7 +272,7 @@ public class IjModuleGraph {
         depsBuilder = ImmutableMap.builder();
     final Set<IjLibrary> referencedLibraries = new HashSet<>();
 
-    for (final IjModule module : FluentIterable.from(rulesToModules.values()).toSet()) {
+    for (final IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
       Map<IjProjectElement, DependencyType> moduleDeps = new HashMap<>();
 
       for (Map.Entry<BuildTarget, DependencyType> entry : module.getDependencies().entrySet()) {
@@ -312,7 +312,7 @@ public class IjModuleGraph {
                       return libraryFactory.getLibrary(targetNode).orElse(null);
                     }
                   })
-              .filter(Predicates.notNull())
+              .filter(Objects::nonNull)
               .toSet();
         }
 
