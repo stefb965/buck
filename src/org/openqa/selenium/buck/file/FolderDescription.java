@@ -26,8 +26,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class FolderDescription implements Description<FolderDescription.Arg> {
 
@@ -52,7 +53,7 @@ public class FolderDescription implements Description<FolderDescription.Arg> {
     return new Folder(
         params,
         new SourcePathResolver(resolver),
-        args.out.or(params.getBuildTarget().getShortName()),
+        args.out.orElse(params.getBuildTarget().getShortName()),
         args.srcs);
   }
 

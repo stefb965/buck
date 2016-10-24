@@ -71,7 +71,7 @@ public class JsFragmentDescription implements
         params.getDeps(),
         args.module,
         args.function,
-        args.defines.get(),
+        args.defines.orElse(ImmutableList.of()),
         args.prettyPrint.orElse(FALSE));
   }
 

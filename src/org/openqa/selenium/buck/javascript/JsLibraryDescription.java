@@ -25,8 +25,9 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableSortedSet;
+
+import java.util.Optional;
 
 public class JsLibraryDescription implements Description<JsLibraryDescription.Arg> {
 

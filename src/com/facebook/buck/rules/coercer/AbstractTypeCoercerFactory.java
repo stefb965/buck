@@ -229,9 +229,6 @@ public class AbstractTypeCoercerFactory implements TypeCoercerFactory {
       } else if (rawClass.isAssignableFrom(Optional.class)) {
         return new OptionalTypeCoercer<>(
             typeCoercerForType(getSingletonTypeParameter(parameterizedType)));
-      } else if (rawClass.isAssignableFrom(com.google.common.base.Optional.class)) {
-        return new GuavaOptionalTypeCoercer<>(
-            typeCoercerForType(getSingletonTypeParameter(parameterizedType)));
       } else {
         throw new IllegalArgumentException("Unhandled type: " + type);
       }
