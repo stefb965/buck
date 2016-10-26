@@ -17,7 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.dalvik.DalvikAwareZipSplitterFactory;
-import com.facebook.buck.dalvik.DefaultZipSplitterFactory;
 import com.facebook.buck.dalvik.ZipSplitter;
 import com.facebook.buck.dalvik.ZipSplitterFactory;
 import com.facebook.buck.dalvik.firstorder.FirstOrderHelper;
@@ -65,22 +64,6 @@ import javax.annotation.Nullable;
  * dx --dex.
  */
 public class SplitZipStep implements Step {
-
-  private static final int ZIP_SIZE_SOFT_LIMIT = 11 * 1024 * 1024;
-
-  /**
-   * The uncompressed class size is a very simple metric that we can use to roughly estimate
-   * whether we will hit the DexOpt LinearAlloc limit.  When we hit the limit, we were around
-   * 20 MB uncompressed, so use 13 MB as a safer upper limit.
-   */
-  private static final int ZIP_SIZE_HARD_LIMIT = ZIP_SIZE_SOFT_LIMIT + (2 * 1024 * 1024);
-
-  // Transform Function that calls String.trim()
-  private static final Function<String, String> STRING_TRIM = line -> line.trim();
-
-  // Transform Function that calls Type.GetObjectType.
-  private static final Function<String, Type> TYPE_GET_OBJECT_TYPE =
-      input -> Type.getObjectType(input);
 
   @VisibleForTesting
   static final Pattern CANARY_CLASS_FILE_PATTERN = Pattern.compile("^([\\w/$]+)\\.Canary\\.class");
@@ -194,14 +177,9 @@ public class SplitZipStep implements Step {
               filesystem);
 
       ZipSplitterFactory zipSplitterFactory;
-      if (dexSplitMode.useLinearAllocSplitDex()) {
-        zipSplitterFactory = new DalvikAwareZipSplitterFactory(
-            dexSplitMode.getLinearAllocHardLimit(),
-            wantedInPrimaryZip);
-      } else {
-        zipSplitterFactory = new DefaultZipSplitterFactory(ZIP_SIZE_SOFT_LIMIT,
-            ZIP_SIZE_HARD_LIMIT);
-      }
+      zipSplitterFactory = new DalvikAwareZipSplitterFactory(
+          dexSplitMode.getLinearAllocHardLimit(),
+          wantedInPrimaryZip);
 
       outputFiles = zipSplitterFactory.newInstance(
           filesystem,
@@ -294,7 +272,7 @@ public class SplitZipStep implements Step {
     if (primaryDexClassesFile.isPresent()) {
       Iterable<String> classes = FluentIterable
           .from(filesystem.readLines(primaryDexClassesFile.get()))
-          .transform(STRING_TRIM)
+          .transform(String::trim)
           .filter(SplitZipStep::isNeitherEmptyNorComment);
       builder.addAll(classes);
     }
@@ -305,7 +283,7 @@ public class SplitZipStep implements Step {
       addScenarioClasses(translatorFactory, classesSupplier, builder);
     }
 
-    return ImmutableSet.copyOf(builder.build());
+    return builder.build();
   }
   /**
    * Construct a {@link Set} of internal class names that must go into the beginning of
@@ -321,13 +299,13 @@ public class SplitZipStep implements Step {
     if (secondaryDexHeadClassesFile.isPresent()) {
       Iterable<String> classes = FluentIterable
           .from(filesystem.readLines(secondaryDexHeadClassesFile.get()))
-          .transform(STRING_TRIM)
+          .transform(String::trim)
           .filter(SplitZipStep::isNeitherEmptyNorComment)
           .transform(translatorFactory.createObfuscationFunction());
       builder.addAll(classes);
     }
 
-    return ImmutableSet.copyOf(builder.build());
+    return builder.build();
   }
   /**
    * Construct a {@link Set} of internal class names that must go into the beginning of
@@ -343,13 +321,13 @@ public class SplitZipStep implements Step {
     if (secondaryDexTailClassesFile.isPresent()) {
       Iterable<String> classes = FluentIterable
           .from(filesystem.readLines(secondaryDexTailClassesFile.get()))
-          .transform(STRING_TRIM)
+          .transform(String::trim)
           .filter(SplitZipStep::isNeitherEmptyNorComment)
           .transform(translatorFactory.createObfuscationFunction());
       builder.addAll(classes);
     }
 
-    return ImmutableSet.copyOf(builder.build());
+    return builder.build();
   }
 
   /**
@@ -389,10 +367,10 @@ public class SplitZipStep implements Step {
 
     ImmutableList<Type> scenarioClasses = FluentIterable
         .from(filesystem.readLines(primaryDexScenarioFile.get()))
-        .transform(STRING_TRIM)
+        .transform(String::trim)
         .filter(SplitZipStep::isNeitherEmptyNorComment)
         .transform(translatorFactory.createObfuscationFunction())
-        .transform(TYPE_GET_OBJECT_TYPE)
+        .transform(Type::getObjectType)
         .toList();
 
     FirstOrderHelper.addTypesAndDependencies(
@@ -480,8 +458,7 @@ public class SplitZipStep implements Step {
         secondaryJarMetaPath,
         primaryJarPath,
         secondaryJarDir,
-        secondaryJarPattern,
-        ZIP_SIZE_HARD_LIMIT);
+        secondaryJarPattern);
   }
 
   public Supplier<Multimap<Path, Path>> getOutputToInputsMapSupplier(

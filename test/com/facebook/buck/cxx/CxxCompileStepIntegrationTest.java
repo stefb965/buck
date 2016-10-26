@@ -55,7 +55,7 @@ public class CxxCompileStepIntegrationTest {
 
   private void assertCompDir(Path compDir, Optional<String> failure) throws Exception {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
-    CxxPlatform platform = DefaultCxxPlatforms.build(
+    CxxPlatform platform = CxxPlatformUtils.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
@@ -106,6 +106,7 @@ public class CxxCompileStepIntegrationTest {
                     Optional.empty())),
             HeaderPathNormalizer.empty(pathResolver),
             sanitizer,
+            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
             scratchDir,
             true,
@@ -144,7 +145,7 @@ public class CxxCompileStepIntegrationTest {
   @Test
   public void createsAnArgfile() throws Exception {
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
-    CxxPlatform platform = DefaultCxxPlatforms.build(
+    CxxPlatform platform = CxxPlatformUtils.build(
         new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
@@ -188,7 +189,8 @@ public class CxxCompileStepIntegrationTest {
                     ImmutableMap.of(),
                     Optional.empty())),
             HeaderPathNormalizer.empty(pathResolver),
-            CxxPlatformUtils.DEFAULT_DEBUG_PATH_SANITIZER,
+            CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
+            CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
             CxxPlatformUtils.DEFAULT_CONFIG.getHeaderVerification(),
             scratchDir,
             true,

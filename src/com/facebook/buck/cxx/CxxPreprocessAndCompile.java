@@ -61,7 +61,8 @@ public class CxxPreprocessAndCompile
   private final SourcePath input;
   private final Optional<PrecompiledHeaderReference> precompiledHeader;
   private final CxxSource.Type inputType;
-  private final DebugPathSanitizer sanitizer;
+  private final DebugPathSanitizer compilerSanitizer;
+  private final DebugPathSanitizer assemblerSanitizer;
 
   @VisibleForTesting
   public CxxPreprocessAndCompile(
@@ -74,7 +75,8 @@ public class CxxPreprocessAndCompile
       SourcePath input,
       CxxSource.Type inputType,
       Optional<PrecompiledHeaderReference> precompiledHeader,
-      DebugPathSanitizer sanitizer) {
+      DebugPathSanitizer compilerSanitizer,
+      DebugPathSanitizer assemblerSanitizer) {
     super(params, resolver);
     Preconditions.checkState(operation.isPreprocess() == preprocessDelegate.isPresent());
     if (precompiledHeader.isPresent()) {
@@ -89,7 +91,8 @@ public class CxxPreprocessAndCompile
     this.input = input;
     this.inputType = inputType;
     this.precompiledHeader = precompiledHeader;
-    this.sanitizer = sanitizer;
+    this.compilerSanitizer = compilerSanitizer;
+    this.assemblerSanitizer = assemblerSanitizer;
   }
 
   /**
@@ -102,7 +105,8 @@ public class CxxPreprocessAndCompile
       Path output,
       SourcePath input,
       CxxSource.Type inputType,
-      DebugPathSanitizer sanitizer) {
+      DebugPathSanitizer compilerSanitizer,
+      DebugPathSanitizer assemblerSanitizer) {
     return new CxxPreprocessAndCompile(
         params,
         resolver,
@@ -113,7 +117,8 @@ public class CxxPreprocessAndCompile
         input,
         inputType,
         Optional.empty(),
-        sanitizer);
+        compilerSanitizer,
+        assemblerSanitizer);
   }
 
   /**
@@ -127,7 +132,8 @@ public class CxxPreprocessAndCompile
       Path output,
       SourcePath input,
       CxxSource.Type inputType,
-      DebugPathSanitizer sanitizer) {
+      DebugPathSanitizer compilerSanitizer,
+      DebugPathSanitizer assemblerSanitizer) {
     return new CxxPreprocessAndCompile(
         params,
         resolver,
@@ -138,7 +144,8 @@ public class CxxPreprocessAndCompile
         input,
         inputType,
         Optional.empty(),
-        sanitizer);
+        compilerSanitizer,
+        assemblerSanitizer);
   }
 
   /**
@@ -153,7 +160,8 @@ public class CxxPreprocessAndCompile
       SourcePath input,
       CxxSource.Type inputType,
       Optional<PrecompiledHeaderReference> precompiledHeader,
-      DebugPathSanitizer sanitizer,
+      DebugPathSanitizer compilerSanitizer,
+      DebugPathSanitizer assemblerSanitizer,
       CxxPreprocessMode strategy) {
     return new CxxPreprocessAndCompile(
         params,
@@ -167,7 +175,8 @@ public class CxxPreprocessAndCompile
         input,
         inputType,
         precompiledHeader,
-        sanitizer);
+        compilerSanitizer,
+        assemblerSanitizer);
   }
 
   @Override
@@ -175,7 +184,7 @@ public class CxxPreprocessAndCompile
     // If a sanitizer is being used for compilation, we need to record the working directory in
     // the rule key, as changing this changes the generated object file.
     if (operation == CxxPreprocessAndCompileStep.Operation.COMPILE_MUNGE_DEBUGINFO) {
-      sink.setReflectively("compilationDirectory", sanitizer.getCompilationDirectory());
+      sink.setReflectively("compilationDirectory", compilerSanitizer.getCompilationDirectory());
     }
   }
 
@@ -255,7 +264,8 @@ public class CxxPreprocessAndCompile
         preprocessorCommand,
         compilerCommand,
         headerPathNormalizer,
-        sanitizer,
+        compilerSanitizer,
+        assemblerSanitizer,
         preprocessDelegate.isPresent() ?
             preprocessDelegate.get().getHeaderVerification() :
             HeaderVerification.of(HeaderVerification.Mode.IGNORE),

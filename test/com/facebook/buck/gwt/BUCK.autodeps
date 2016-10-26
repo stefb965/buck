@@ -1,7 +1,7 @@
 {
   "gwt" : {
     "deps" : [
-      "//test/com/facebook/buck/testutil/integration:integration",
+      "//test/com/facebook/buck/testutil/integration:util",
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [ ]

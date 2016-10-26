@@ -206,6 +206,11 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     printLines(lines);
   }
 
+  @Override
+  public void printSevereWarningDirectly(String line) {
+    logEvent(ConsoleEvent.severe(line));
+  }
+
   @Subscribe
   public void testRunStarted(final TestRunEvent.Started event) {
     if (console.getVerbosity().isSilent()) {

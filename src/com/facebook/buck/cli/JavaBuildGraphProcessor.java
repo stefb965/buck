@@ -26,8 +26,10 @@ import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
+import com.facebook.buck.rules.BuildEngineBuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CachingBuildEngine;
+import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
@@ -129,19 +131,21 @@ final class JavaBuildGraphProcessor {
       BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
           graph,
           new DefaultTargetNodeToBuildRuleTransformer());
+      CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
+          params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
       BuildEngine buildEngine = new CachingBuildEngine(
           new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
           executorService,
           new DefaultStepRunner(),
           CachingBuildEngine.BuildMode.SHALLOW,
-          params.getBuckConfig().getBuildDepFiles(),
-          params.getBuckConfig().getBuildMaxDepFileCacheEntries(),
-          params.getBuckConfig().getBuildArtifactCacheSizeLimit(),
-          params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+          cachingBuildEngineBuckConfig.getBuildDepFiles(),
+          cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
+          cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
+          cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
           params.getObjectMapper(),
           buildRuleResolver,
           params.getBuckConfig().getKeySeed(),
-          params.getBuckConfig().getResourceAwareSchedulingInfo());
+          cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo());
 
       // Create a BuildEngine because we store symbol information as build artifacts.
       BuckEventBus eventBus = params.getBuckEventBus();
@@ -165,18 +169,20 @@ final class JavaBuildGraphProcessor {
                   params.getEnvironment())))
           .build();
 
-      BuildContext buildContext = BuildContext.builder()
-          // Note we do not create a real action graph because we do not need one.
-          .setActionGraph(new ActionGraph(ImmutableList.of()))
+      BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
+          .setBuildContext(BuildContext.builder()
+              // Note we do not create a real action graph because we do not need one.
+              .setActionGraph(new ActionGraph(ImmutableList.of()))
+              .setJavaPackageFinder(executionContext.getJavaPackageFinder())
+              .setEventBus(eventBus)
+              .setShouldReportAbsolutePaths(false)
+              .build())
           .setClock(params.getClock())
           .setArtifactCache(params.getArtifactCache())
-          .setJavaPackageFinder(executionContext.getJavaPackageFinder())
-          .setEventBus(eventBus)
           .setBuildId(eventBus.getBuildId())
           .setObjectMapper(params.getObjectMapper())
-          .putAllEnvironment(executionContext.getEnvironment())
+          .setEnvironment(executionContext.getEnvironment())
           .setKeepGoing(false)
-          .setShouldReportAbsolutePaths(false)
           .build();
 
       // Traverse the TargetGraph to find all of the auto-generated dependencies.

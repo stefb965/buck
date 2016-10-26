@@ -25,6 +25,7 @@ import com.facebook.buck.cxx.GnuArchiver;
 import com.facebook.buck.cxx.GnuLinker;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerProvider;
+import com.facebook.buck.cxx.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.PreprocessorProvider;
@@ -450,12 +451,14 @@ public class NdkCxxPlatforms {
     NdkCxxToolchainPaths sanitizedPaths = toolchainPaths.getSanitizedPaths();
 
     // Build up the map of paths that must be sanitized.
-    ImmutableBiMap.Builder<Path, Path> sanitizePaths = ImmutableBiMap.builder();
-    sanitizePaths.put(toolchainPaths.getNdkToolRoot(), sanitizedPaths.getNdkToolRoot());
+    ImmutableBiMap.Builder<Path, Path> sanitizePathsBuilder = ImmutableBiMap.builder();
+    sanitizePathsBuilder.put(toolchainPaths.getNdkToolRoot(), sanitizedPaths.getNdkToolRoot());
     if (compilerType != NdkCxxPlatformCompiler.Type.GCC) {
-      sanitizePaths.put(toolchainPaths.getNdkGccToolRoot(), sanitizedPaths.getNdkGccToolRoot());
+      sanitizePathsBuilder.put(
+          toolchainPaths.getNdkGccToolRoot(),
+          sanitizedPaths.getNdkGccToolRoot());
     }
-    sanitizePaths.put(ndkRoot, Paths.get(ANDROID_NDK_ROOT));
+    sanitizePathsBuilder.put(ndkRoot, Paths.get(ANDROID_NDK_ROOT));
 
     CxxToolProvider.Type type =
         compilerType == NdkCxxPlatformCompiler.Type.CLANG ?
@@ -481,27 +484,32 @@ public class NdkCxxPlatforms {
     PreprocessorProvider cxxpp = new PreprocessorProvider(cxxTool, type);
 
     CxxPlatform.Builder cxxPlatformBuilder = CxxPlatform.builder();
-    PrefixMapDebugPathSanitizer debugPathSanitizer = new PrefixMapDebugPathSanitizer(
+    ImmutableBiMap<Path, Path> sanitizePaths = sanitizePathsBuilder.build();
+    PrefixMapDebugPathSanitizer compilerDebugPathSanitizer = new PrefixMapDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
         Paths.get("."),
-        sanitizePaths.build(),
+        sanitizePaths,
         filesystem.getRootPath().toAbsolutePath(),
         type);
-    ImmutableList<String> sanitizerFlags = debugPathSanitizer.getCompilationFlags();
+    MungingDebugPathSanitizer assemblerDebugPathSanitizer = new MungingDebugPathSanitizer(
+        config.getDebugPathSanitizerLimit(),
+        File.separatorChar,
+        Paths.get("."),
+        sanitizePaths);
     cxxPlatformBuilder
         .setFlavor(flavor)
         .setAs(cc)
-        .addAllAsflags(getAsflags(targetConfiguration, toolchainPaths, sanitizerFlags))
+        .addAllAsflags(getAsflags(targetConfiguration, toolchainPaths))
         .setAspp(cpp)
         .setCc(cc)
         .addAllCflags(getCflagsInternal(targetConfiguration, toolchainPaths))
         .setCpp(cpp)
-        .addAllCppflags(getCppflags(targetConfiguration, toolchainPaths, sanitizerFlags))
+        .addAllCppflags(getCppflags(targetConfiguration, toolchainPaths))
         .setCxx(cxx)
-        .addAllCxxflags(getCxxflagsInternal(targetConfiguration, toolchainPaths, sanitizerFlags))
+        .addAllCxxflags(getCxxflagsInternal(targetConfiguration, toolchainPaths))
         .setCxxpp(cxxpp)
-        .addAllCxxppflags(getCxxppflags(targetConfiguration, toolchainPaths, sanitizerFlags))
+        .addAllCxxppflags(getCxxppflags(targetConfiguration, toolchainPaths))
         .setLd(
             new DefaultLinkerProvider(
                 LinkerProvider.Type.GNU,
@@ -541,7 +549,8 @@ public class NdkCxxPlatforms {
         .setRanlib(
             getGccTool(toolchainPaths, "ranlib", version, executableFinder))
         // NDK builds are cross compiled, so the header is the same regardless of the host platform.
-        .setDebugPathSanitizer(debugPathSanitizer)
+        .setCompilerDebugPathSanitizer(compilerDebugPathSanitizer)
+        .setAssemblerDebugPathSanitizer(assemblerDebugPathSanitizer)
         .setSharedLibraryExtension("so")
         .setSharedLibraryVersionedExtensionFormat("so.%s")
         .setStaticLibraryExtension("a")
@@ -824,11 +833,9 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getAsflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths,
-      ImmutableList<String> sanitizerFlags) {
+      NdkCxxToolchainPaths toolchainPaths) {
     return ImmutableList.<String>builder()
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
-        .addAll(sanitizerFlags)
         // Default assembler flags added by the NDK to enforce the NX (no execute) security feature.
         .add("-Xassembler", "--noexecstack")
         .addAll(targetConfiguration.getAssemblerFlags(targetConfiguration.getCompiler().getType()))
@@ -837,29 +844,25 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getCppflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths,
-      ImmutableList<String> sanitizerFlags) {
+      NdkCxxToolchainPaths toolchainPaths) {
     return ImmutableList.<String>builder()
         .addAll(getCommonIncludes(toolchainPaths))
         .addAll(getCommonPreprocessorFlags())
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
         .addAll(getCommonCFlags())
-        .addAll(sanitizerFlags)
         .addAll(targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
         .build();
   }
 
   private static ImmutableList<String> getCxxppflags(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths,
-      ImmutableList<String> sanitizerFlags) {
+      NdkCxxToolchainPaths toolchainPaths) {
     ImmutableList.Builder<String> flags = ImmutableList.builder();
     flags.addAll(getCxxRuntimeIncludeFlags(targetConfiguration, toolchainPaths));
     flags.addAll(getCommonIncludes(toolchainPaths));
     flags.addAll(getCommonPreprocessorFlags());
     flags.addAll(getCommonFlags(targetConfiguration, toolchainPaths));
     flags.addAll(getCommonCxxFlags());
-    flags.addAll(sanitizerFlags);
     if (targetConfiguration.getCompiler().getType() == NdkCxxPlatformCompiler.Type.GCC) {
       flags.add("-Wno-literal-suffix");
     }
@@ -893,15 +896,13 @@ public class NdkCxxPlatforms {
 
   private static ImmutableList<String> getCxxflagsInternal(
       NdkCxxPlatformTargetConfiguration targetConfiguration,
-      NdkCxxToolchainPaths toolchainPaths,
-      ImmutableList<String> sanitizerFlags) {
+      NdkCxxToolchainPaths toolchainPaths) {
     return ImmutableList.<String>builder()
         .addAll(
             targetConfiguration.getCompilerFlags(targetConfiguration.getCompiler().getType()))
         .addAll(getCommonCxxFlags())
         .addAll(getCommonFlags(targetConfiguration, toolchainPaths))
         .addAll(getCommonNdkCxxPlatformCompilerFlags())
-        .addAll(sanitizerFlags)
         .build();
   }
 

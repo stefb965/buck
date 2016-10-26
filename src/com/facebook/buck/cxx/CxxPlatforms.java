@@ -74,7 +74,8 @@ public class CxxPlatforms {
       String sharedLibraryVersionedExtensionFormat,
       String staticLibraryExtension,
       String objectFileExtension,
-      Optional<DebugPathSanitizer> debugPathSanitizer,
+      Optional<DebugPathSanitizer> compilerDebugPathSanitizer,
+      Optional<DebugPathSanitizer> assemblerDebugPathSanitizer,
       ImmutableMap<String, String> flagMacros) {
     // TODO(bhamiltoncx, andrewjcg): Generalize this so we don't need all these setters.
     CxxPlatform.Builder builder = CxxPlatform.builder();
@@ -106,12 +107,20 @@ public class CxxPlatforms {
         .setSharedLibraryVersionedExtensionFormat(sharedLibraryVersionedExtensionFormat)
         .setStaticLibraryExtension(staticLibraryExtension)
         .setObjectFileExtension(objectFileExtension)
-        .setDebugPathSanitizer(
-            debugPathSanitizer.orElse(new MungingDebugPathSanitizer(
-                config.getDebugPathSanitizerLimit(),
-                File.separatorChar,
-                Paths.get("."),
-                ImmutableBiMap.of())))
+        .setCompilerDebugPathSanitizer(
+            compilerDebugPathSanitizer.orElse(
+                new MungingDebugPathSanitizer(
+                    config.getDebugPathSanitizerLimit(),
+                    File.separatorChar,
+                    Paths.get("."),
+                    ImmutableBiMap.of())))
+        .setAssemblerDebugPathSanitizer(
+            assemblerDebugPathSanitizer.orElse(
+                new MungingDebugPathSanitizer(
+                    config.getDebugPathSanitizerLimit(),
+                    File.separatorChar,
+                    Paths.get("."),
+                    ImmutableBiMap.of())))
         .setFlagMacros(flagMacros);
 
 
@@ -143,30 +152,31 @@ public class CxxPlatforms {
       CxxBuckConfig config,
       Flavor flavor) {
     return CxxPlatforms.build(
-      flavor,
-      config,
-      defaultPlatform.getAs(),
-      defaultPlatform.getAspp(),
-      defaultPlatform.getCc(),
-      defaultPlatform.getCxx(),
-      defaultPlatform.getCpp(),
-      defaultPlatform.getCxxpp(),
-      defaultPlatform.getLd(),
-      defaultPlatform.getLdflags(),
-      defaultPlatform.getStrip(),
-      defaultPlatform.getAr(),
-      defaultPlatform.getRanlib(),
-      defaultPlatform.getSymbolNameTool(),
-      defaultPlatform.getAsflags(),
-      defaultPlatform.getAsppflags(),
-      defaultPlatform.getCflags(),
-      defaultPlatform.getCppflags(),
-      defaultPlatform.getSharedLibraryExtension(),
-      defaultPlatform.getSharedLibraryVersionedExtensionFormat(),
-      defaultPlatform.getStaticLibraryExtension(),
-      defaultPlatform.getObjectFileExtension(),
-      Optional.of(defaultPlatform.getDebugPathSanitizer()),
-      defaultPlatform.getFlagMacros());
+        flavor,
+        config,
+        defaultPlatform.getAs(),
+        defaultPlatform.getAspp(),
+        defaultPlatform.getCc(),
+        defaultPlatform.getCxx(),
+        defaultPlatform.getCpp(),
+        defaultPlatform.getCxxpp(),
+        defaultPlatform.getLd(),
+        defaultPlatform.getLdflags(),
+        defaultPlatform.getStrip(),
+        defaultPlatform.getAr(),
+        defaultPlatform.getRanlib(),
+        defaultPlatform.getSymbolNameTool(),
+        defaultPlatform.getAsflags(),
+        defaultPlatform.getAsppflags(),
+        defaultPlatform.getCflags(),
+        defaultPlatform.getCppflags(),
+        defaultPlatform.getSharedLibraryExtension(),
+        defaultPlatform.getSharedLibraryVersionedExtensionFormat(),
+        defaultPlatform.getStaticLibraryExtension(),
+        defaultPlatform.getObjectFileExtension(),
+        Optional.of(defaultPlatform.getCompilerDebugPathSanitizer()),
+        Optional.of(defaultPlatform.getAssemblerDebugPathSanitizer()),
+        defaultPlatform.getFlagMacros());
   }
 
   private static Function<Tool, Archiver> getArchiver(final Class<? extends Archiver> arClass,

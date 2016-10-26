@@ -158,6 +158,7 @@ import com.facebook.buck.thrift.ThriftPythonEnhancer;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.versions.VersionedAlias;
 import com.facebook.buck.zip.ZipDescription;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -816,6 +817,7 @@ public class KnownBuildRuleTypes {
 
     builder.setCxxPlatforms(cxxPlatforms);
     builder.setDefaultCxxPlatform(defaultCxxPlatform);
+    builder.register(VersionedAlias.of());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
     JavascriptConfig jsConfig = new JavascriptConfig(config);
@@ -826,7 +828,6 @@ public class KnownBuildRuleTypes {
     builder.register(new JsTestDescription(jsConfig));
     builder.register(new XpiDescription());
     builder.register(new XptDescription());
-    builder.register(new ZipDescription());
 
     return builder;
   }

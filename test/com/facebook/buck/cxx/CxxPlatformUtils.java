@@ -22,7 +22,7 @@ import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.Tool;
-import com.google.common.annotations.VisibleForTesting;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableBiMap;
 
 import java.io.File;
@@ -47,8 +47,14 @@ public class CxxPlatformUtils {
           new ConstantToolProvider(DEFAULT_TOOL),
           CxxToolProvider.Type.GCC);
 
-  @VisibleForTesting
-  static final DebugPathSanitizer DEFAULT_DEBUG_PATH_SANITIZER =
+  static final DebugPathSanitizer DEFAULT_COMPILER_DEBUG_PATH_SANITIZER =
+      new MungingDebugPathSanitizer(
+          250,
+          File.separatorChar,
+          Paths.get("."),
+          ImmutableBiMap.of());
+
+  static final DebugPathSanitizer DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER =
       new MungingDebugPathSanitizer(
           250,
           File.separatorChar,
@@ -80,10 +86,14 @@ public class CxxPlatformUtils {
           .setSharedLibraryVersionedExtensionFormat("so.%s")
           .setStaticLibraryExtension("a")
           .setObjectFileExtension("o")
-          .setDebugPathSanitizer(DEFAULT_DEBUG_PATH_SANITIZER)
+          .setCompilerDebugPathSanitizer(DEFAULT_COMPILER_DEBUG_PATH_SANITIZER)
+          .setAssemblerDebugPathSanitizer(DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER)
           .build();
 
     public static final FlavorDomain<CxxPlatform> DEFAULT_PLATFORMS =
         FlavorDomain.of("C/C++ Platform", DEFAULT_PLATFORM);
 
+  public static CxxPlatform build(CxxBuckConfig config) {
+    return DefaultCxxPlatforms.build(Platform.detect(), config);
+  }
 }

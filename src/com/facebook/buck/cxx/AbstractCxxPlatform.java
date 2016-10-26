@@ -89,7 +89,8 @@ interface AbstractCxxPlatform extends FlavorConvertible {
   String getStaticLibraryExtension();
   String getObjectFileExtension();
 
-  DebugPathSanitizer getDebugPathSanitizer();
+  DebugPathSanitizer getCompilerDebugPathSanitizer();
+  DebugPathSanitizer getAssemblerDebugPathSanitizer();
 
   /**
    * @return a map for macro names to their respective expansions, to be used to expand macro

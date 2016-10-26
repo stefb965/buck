@@ -66,7 +66,8 @@ public class CxxPreprocessAndCompileStep implements Step {
   private final Optional<ToolCommand> preprocessorCommand;
   private final Optional<ToolCommand> compilerCommand;
   private final HeaderPathNormalizer headerPathNormalizer;
-  private final DebugPathSanitizer sanitizer;
+  private final DebugPathSanitizer compilerSanitizer;
+  private final DebugPathSanitizer assemblerSanitizer;
   private final HeaderVerification headerVerification;
   private final Compiler compiler;
 
@@ -88,12 +89,12 @@ public class CxxPreprocessAndCompileStep implements Step {
       Optional<ToolCommand> preprocessorCommand,
       Optional<ToolCommand> compilerCommand,
       HeaderPathNormalizer headerPathNormalizer,
-      DebugPathSanitizer sanitizer,
+      DebugPathSanitizer compilerSanitizer,
+      DebugPathSanitizer assemblerSanitizer,
       HeaderVerification headerVerification,
       Path scratchDir,
       boolean useArgfile,
       Compiler compiler) {
-
     Preconditions.checkState(operation.isPreprocess() == preprocessorCommand.isPresent());
     Preconditions.checkState(operation.isCompile() == compilerCommand.isPresent());
 
@@ -106,7 +107,8 @@ public class CxxPreprocessAndCompileStep implements Step {
     this.preprocessorCommand = preprocessorCommand;
     this.compilerCommand = compilerCommand;
     this.headerPathNormalizer = headerPathNormalizer;
-    this.sanitizer = sanitizer;
+    this.compilerSanitizer = compilerSanitizer;
+    this.assemblerSanitizer = assemblerSanitizer;
     this.headerVerification = headerVerification;
     this.scratchDir = scratchDir;
     this.useArgfile = useArgfile;
@@ -137,7 +139,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     Map<String, String> env = new HashMap<>(context.getEnvironment());
 
     env.putAll(
-        sanitizer.getCompilationEnvironment(
+        getSanitizer().getCompilationEnvironment(
             filesystem.getRootPath().toAbsolutePath(),
             shouldSanitizeOutputBinary()));
 
@@ -189,6 +191,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     return ImmutableList.<String>builder()
         .addAll(compilerCommand.get().getArguments(allowColorsInDiagnostics))
         .addAll(getLanguageArgs(inputLanguage))
+        .addAll(getSanitizer().getCompilationFlags())
         .add("-c")
         .addAll(
             preprocessable ?
@@ -463,7 +466,7 @@ public class CxxPreprocessAndCompileStep implements Step {
     return new CxxPreprocessorOutputTransformerFactory(
         filesystem.getRootPath(),
         headerPathNormalizer,
-        sanitizer);
+        getSanitizer());
   }
 
   private CxxErrorTransformerFactory createErrorTransformerFactory(ExecutionContext context) {
@@ -477,7 +480,7 @@ public class CxxPreprocessAndCompileStep implements Step {
             Optional.of(filesystem.getAbsolutifier()) :
             Optional.empty(),
         headerPathNormalizer,
-        sanitizer);
+        getSanitizer());
   }
 
   @Override
@@ -513,7 +516,7 @@ public class CxxPreprocessAndCompileStep implements Step {
       if (exitCode == 0 && shouldSanitizeOutputBinary()) {
         try {
           Path path = filesystem.getRootPath().toAbsolutePath().resolve(output);
-          sanitizer.restoreCompilationDirectory(
+          getSanitizer().restoreCompilationDirectory(
               path,
               filesystem.getRootPath().toAbsolutePath());
           FILE_LAST_MODIFIED_DATE_SCRUBBER.scrubFileWithPath(path);
@@ -615,6 +618,10 @@ public class CxxPreprocessAndCompileStep implements Step {
       return getDescriptionNoContext();
     }
     return "(verbosity level disables command output)";
+  }
+
+  private DebugPathSanitizer getSanitizer() {
+    return inputType.isAssembly() ? assemblerSanitizer : compilerSanitizer;
   }
 
   // We need to do binary rewriting if doing combined preprocessing and compiling or if we're

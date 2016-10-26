@@ -56,7 +56,7 @@ public class DexWithClassesTest {
         new DexProducedFromJavaLibrary(params, resolver, javaLibrary);
     dexFromJavaLibrary.getBuildOutputInitializer().setBuildOutput(
         new DexProducedFromJavaLibrary.BuildOutput(
-            /* linearAllocEstimate */ 1600,
+            /* weightEstimate */ 1600,
             /* classNamesToHashes */ ImmutableSortedMap.of(
                 "com/example/Main",
                 HashCode.fromString(Strings.repeat("cafebabe", 5))),
@@ -67,7 +67,7 @@ public class DexWithClassesTest {
         BuildTargets.getGenPath(javaLibrary.getProjectFilesystem(), buildTarget, "%s.dex.jar"),
         dexWithClasses.getPathToDexFile());
     assertEquals(ImmutableSet.of("com/example/Main"), dexWithClasses.getClassNames());
-    assertEquals(1600, dexWithClasses.getSizeEstimate());
+    assertEquals(1600, dexWithClasses.getWeightEstimate());
   }
 
   @Test
@@ -84,7 +84,7 @@ public class DexWithClassesTest {
         new DexProducedFromJavaLibrary(params, resolver, javaLibrary);
     dexFromJavaLibrary.getBuildOutputInitializer().setBuildOutput(
         new DexProducedFromJavaLibrary.BuildOutput(
-            /* linearAllocEstimate */ 1600,
+            /* weightEstimate */ 1600,
             /* classNamesToHashes */ ImmutableSortedMap.of(),
             Optional.empty()));
 

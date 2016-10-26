@@ -160,12 +160,13 @@ public class PrecompiledHeaderFeatureTest {
       class TestData {
         public CxxPrecompiledHeader generate(Path from) {
           CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder()
-              .setCxxPlatform(PLATFORM_SUPPORTING_PCH.withDebugPathSanitizer(
-                  new MungingDebugPathSanitizer(
-                      250,
-                      File.separatorChar,
-                      Paths.get("."),
-                      ImmutableBiMap.of(from, Paths.get("melon")))))
+              .setCxxPlatform(
+                  PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
+                      new MungingDebugPathSanitizer(
+                          250,
+                          File.separatorChar,
+                          Paths.get("."),
+                          ImmutableBiMap.of(from, Paths.get("melon")))))
               .setPrefixHeader(new FakeSourcePath(("foo.pch")))
               .build();
           BuildRule rule = factory.createPreprocessAndCompileBuildRule(
@@ -446,7 +447,7 @@ public class PrecompiledHeaderFeatureTest {
           .build());
 
   private static final CxxPlatform PLATFORM_NOT_SUPPORTING_PCH =
-      DefaultCxxPlatforms.build(CXX_CONFIG_PCH_DISABLED);
+      CxxPlatformUtils.build(CXX_CONFIG_PCH_DISABLED);
 
   private static final CxxBuckConfig CXX_CONFIG_PCH_ENABLED =
       new CxxBuckConfig(
@@ -455,7 +456,7 @@ public class PrecompiledHeaderFeatureTest {
           .build());
 
   private static final CxxPlatform PLATFORM_SUPPORTING_PCH =
-      DefaultCxxPlatforms
+      CxxPlatformUtils
           .build(CXX_CONFIG_PCH_ENABLED)
           .withCpp(
               new PreprocessorProvider(

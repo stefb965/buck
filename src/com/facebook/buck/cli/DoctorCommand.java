@@ -81,7 +81,7 @@ public class DoctorCommand extends AbstractCommand {
         new DefaultVersionControlCmdLineInterfaceFactory(
             params.getCell().getFilesystem().getRootPath(),
             new PrintStreamProcessExecutorFactory(),
-            new VersionControlBuckConfig(params.getBuckConfig()),
+            new VersionControlBuckConfig(params.getBuckConfig().getRawConfig()),
             params.getBuckConfig().getEnvironment());
 
     PopulatedReport report = new PopulatedReport(
