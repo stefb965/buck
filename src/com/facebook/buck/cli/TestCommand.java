@@ -530,6 +530,7 @@ public class TestCommand extends BuildCommand {
           params.getConsole(),
           params.getBuckEventBus(),
           getTargetDeviceOptional(),
+          params.getPersistentWorkerPools(),
           params.getPlatform(),
           params.getEnvironment(),
           params.getBuildStamper(),

@@ -204,8 +204,8 @@ public class PublishCommand extends BuildCommand {
     if (includeSource) {
       specs = ImmutableList.<TargetNodeSpec>builder()
           .addAll(specs)
-          .addAll(FluentIterable
-              .from(specs)
+          .addAll(
+              specs.stream()
               .filter(
                   input -> {
                     if (!(input instanceof BuildTargetSpec)) {
@@ -218,12 +218,11 @@ public class PublishCommand extends BuildCommand {
                         .getFlavors()
                         .contains(JavaLibrary.SRC_JAR);
                   })
-              .transform(
+              .map(
                   input -> BuildTargetSpec.of(
-                      ((BuildTargetSpec) input)
-                          .getBuildTarget()
-                          .withFlavors(JavaLibrary.SRC_JAR),
-                      input.getBuildFileSpec())))
+                      ((BuildTargetSpec) input).getBuildTarget().withFlavors(JavaLibrary.SRC_JAR),
+                      input.getBuildFileSpec()))
+              .iterator())
           .build();
     }
 

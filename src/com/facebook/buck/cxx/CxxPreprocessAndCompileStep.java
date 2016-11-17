@@ -168,7 +168,7 @@ public class CxxPreprocessAndCompileStep implements Step {
   }
 
   private Path getArgfile() {
-    return filesystem.resolve(scratchDir).resolve("argfile.txt");
+    return filesystem.resolve(scratchDir).resolve("ppandcompile.argsfile");
   }
 
   @VisibleForTesting
@@ -477,7 +477,7 @@ public class CxxPreprocessAndCompileStep implements Step {
             Optional.of(filesystem.getRootPath()) :
             Optional.empty(),
         context.shouldReportAbsolutePaths() ?
-            Optional.of(filesystem.getAbsolutifier()) :
+            Optional.of(filesystem::resolve) :
             Optional.empty(),
         headerPathNormalizer,
         getSanitizer());

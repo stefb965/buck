@@ -259,10 +259,6 @@ public class Publisher {
           descriptor.getClassifier(),
           Files.getFileExtension(file.getAbsolutePath()),
           file));
-
-//      if (signingPassphrase.isPresent()) {
-//        artifacts.add(sign(descriptor, file));
-//      }
     }
     return publish(artifacts);
   }

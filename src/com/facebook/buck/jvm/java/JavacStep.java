@@ -17,18 +17,20 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.event.CompilerErrorEvent;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.CapturingPrintStream;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -54,7 +56,7 @@ public class JavacStep implements Step {
 
   private final ClassUsageFileWriter usedClassesFileWriter;
 
-  private final Optional<StandardJavaFileManagerFactory> fileManagerFactory;
+  private final StandardJavaFileManagerFactory fileManagerFactory;
 
   private final Optional<Path> workingDirectory;
 
@@ -75,6 +77,8 @@ public class JavacStep implements Step {
   private final ProjectFilesystem filesystem;
 
   private final Javac javac;
+
+  private final ClasspathChecker classpathChecker;
 
   private static final Pattern IS_WARNING =
       Pattern.compile(":\\s*warning:", Pattern.CASE_INSENSITIVE);
@@ -108,7 +112,7 @@ public class JavacStep implements Step {
   public JavacStep(
       Path outputDirectory,
       ClassUsageFileWriter usedClassesFileWriter,
-      Optional<StandardJavaFileManagerFactory> fileManagerFactory,
+      StandardJavaFileManagerFactory fileManagerFactory,
       Optional<Path> workingDirectory,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
@@ -118,7 +122,8 @@ public class JavacStep implements Step {
       BuildTarget invokingRule,
       Optional<SuggestBuildRules> suggestBuildRules,
       SourcePathResolver resolver,
-      ProjectFilesystem filesystem) {
+      ProjectFilesystem filesystem,
+      ClasspathChecker classpathChecker) {
     this.outputDirectory = outputDirectory;
     this.usedClassesFileWriter = usedClassesFileWriter;
     this.fileManagerFactory = fileManagerFactory;
@@ -132,45 +137,70 @@ public class JavacStep implements Step {
     this.suggestBuildRules = suggestBuildRules;
     this.resolver = resolver;
     this.filesystem = filesystem;
+    this.classpathChecker = classpathChecker;
   }
 
   @Override
   public final StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    return StepExecutionResult.of(tryBuildWithFirstOrderDeps(context, filesystem));
+    return tryBuildWithFirstOrderDeps(context, filesystem);
   }
 
-  private int tryBuildWithFirstOrderDeps(ExecutionContext context, ProjectFilesystem filesystem)
+  private StepExecutionResult tryBuildWithFirstOrderDeps(
+      ExecutionContext context,
+      ProjectFilesystem filesystem)
       throws InterruptedException, IOException {
+    try {
+      javacOptions.validateOptions(classpathChecker::validateClasspath);
+    } catch (IOException e) {
+      context.postEvent(
+          ConsoleEvent.severe("Invalid Java compiler options: %s", e.getMessage()));
+      return StepExecutionResult.ERROR;
+    }
+
     Verbosity verbosity =
         context.getVerbosity().isSilent() ? Verbosity.STANDARD_INFORMATION : context.getVerbosity();
     try (
-        CapturingPrintStream stdout = new CapturingPrintStream();
-        CapturingPrintStream stderr = new CapturingPrintStream();
-        ExecutionContext firstOrderContext = context.createSubContext(
-            stdout,
-            stderr,
-            Optional.of(verbosity))) {
+      CapturingPrintStream stdout = new CapturingPrintStream();
+      CapturingPrintStream stderr = new CapturingPrintStream();
+      ExecutionContext firstOrderContext = context.createSubContext(
+          stdout,
+          stderr,
+          Optional.of(verbosity))) {
 
       Javac javac = getJavac();
 
-      int declaredDepsResult = javac.buildWithClasspath(
-          firstOrderContext,
+      JavacExecutionContext javacExecutionContext = JavacExecutionContext.of(
+          new JavacEventSinkToBuckEventBusBridge(firstOrderContext.getBuckEventBus()),
+          stderr,
+          firstOrderContext.getClassLoaderCache(),
+          firstOrderContext.getObjectMapper(),
+          verbosity,
+          firstOrderContext.getJavaPackageFinder(),
           filesystem,
-          resolver,
+          usedClassesFileWriter,
+          fileManagerFactory,
+          firstOrderContext.getEnvironment(),
+          firstOrderContext.getProcessExecutor(),
+          getAbsolutePathsForJavacInputs(javac));
+
+      int declaredDepsResult = javac.buildWithClasspath(
+          javacExecutionContext,
           invokingRule,
           getOptions(context, declaredClasspathEntries),
           javacOptions.getSafeAnnotationProcessors(),
           javaSourceFilePaths,
           pathToSrcsList,
-          workingDirectory,
-          usedClassesFileWriter,
-          fileManagerFactory);
+          workingDirectory);
 
       String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
       String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
 
+      Optional<String> returnedStderr;
+
       if (declaredDepsResult != 0) {
+        returnedStderr = Optional.of(firstOrderStderr);
+
         ImmutableList.Builder<String> errorMessage = ImmutableList.builder();
         errorMessage.add(firstOrderStderr);
 
@@ -206,14 +236,31 @@ public class JavacStep implements Step {
           context.postEvent(evt);
         }
 
-        if (!context.getVerbosity().isSilent()) {
-          context.getStdOut().print(firstOrderStdout);
-          context.getStdErr().println(Joiner.on("\n").join(errorMessage.build()));
+        if (!firstOrderStdout.isEmpty()) {
+          context.postEvent(ConsoleEvent.info("%s", firstOrderStdout));
         }
+        if (!firstOrderStderr.isEmpty()) {
+          context.postEvent(ConsoleEvent.severe("%s", Joiner.on("\n").join(errorMessage.build())));
+        }
+      } else {
+        returnedStderr = Optional.empty();
       }
 
-      return declaredDepsResult;
+      return StepExecutionResult.of(declaredDepsResult, returnedStderr);
     }
+  }
+
+  private ImmutableList<Path> getAbsolutePathsForJavacInputs(Javac javac) {
+    return javac.getInputs().stream().flatMap(input -> {
+      com.google.common.base.Optional<BuildRule> rule =
+          com.google.common.base.Optional.fromNullable(
+              resolver.getRule(input).orElse(null));
+      if (rule instanceof JavaLibrary) {
+        return ((JavaLibrary) rule).getTransitiveClasspaths().stream();
+      } else {
+        return ImmutableSet.of(resolver.getAbsolutePath(input)).stream();
+      }
+    }).collect(MoreCollectors.toImmutableList());
   }
 
   @VisibleForTesting
@@ -295,7 +342,7 @@ public class JavacStep implements Step {
       public void addExtras(Collection<String> extras) {
         builder.addAll(extras);
       }
-    }, filesystem.getAbsolutifier());
+    }, filesystem::resolve);
 
     // verbose flag, if appropriate.
     if (context.getVerbosity().shouldUseVerbosityFlagIfAvailable()) {
@@ -303,8 +350,7 @@ public class JavacStep implements Step {
     }
 
     // Specify the output directory.
-    Function<Path, Path> pathAbsolutifier = filesystem.getAbsolutifier();
-    builder.add("-d").add(pathAbsolutifier.apply(outputDirectory).toString());
+    builder.add("-d").add(filesystem.resolve(outputDirectory).toString());
 
     // Build up and set the classpath.
     if (!buildClasspathEntries.isEmpty()) {

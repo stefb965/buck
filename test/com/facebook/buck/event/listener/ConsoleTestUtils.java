@@ -16,7 +16,7 @@
 
 package com.facebook.buck.event.listener;
 
-import static com.facebook.buck.event.TestEventConfigerator.configureTestEventAtTime;
+import static com.facebook.buck.event.TestEventConfigurator.configureTestEventAtTime;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -71,15 +71,15 @@ public class ConsoleTestUtils {
       long timeInMs,
       boolean success,
       HttpArtifactCacheEvent.Started storeStartedOne) {
-    HttpArtifactCacheEvent.Finished storeFinished =
-        HttpArtifactCacheEvent.newFinishedEventBuilder(storeStartedOne)
-            .setWasUploadSuccessful(success)
-            .setArtifactSizeBytes(artifactSizeInBytes)
-            .build();
+    HttpArtifactCacheEvent.Finished.Builder storeFinished =
+        HttpArtifactCacheEvent.newFinishedEventBuilder(storeStartedOne);
+    storeFinished.getStoreBuilder()
+            .setWasStoreSuccessful(success)
+            .setArtifactSizeBytes(artifactSizeInBytes);
 
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
-            storeFinished,
+            storeFinished.build(),
             timeInMs,
             TimeUnit.MILLISECONDS,
             threadId));

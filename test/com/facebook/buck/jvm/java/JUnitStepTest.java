@@ -83,7 +83,8 @@ public class JUnitStepTest {
     JUnitStep junit = new JUnitStep(
         filesystem,
         /* nativeLibsEnvironment */ ImmutableMap.of(),
-        /* testRuleTimeoutMs*/ Optional.empty(),
+        /* testRuleTimeoutMs */ Optional.empty(),
+        /* testCaseTimeoutMs */ Optional.empty(),
         ImmutableMap.of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
@@ -102,6 +103,7 @@ public class JUnitStepTest {
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             modulePathArg,
+            "-Dapple.awt.UIElement=true",
             vmArg1,
             vmArg2,
             "-verbose",
@@ -143,7 +145,8 @@ public class JUnitStepTest {
     JUnitStep junit = new JUnitStep(
         filesystem,
         /* nativeLibsEnvironment */ ImmutableMap.of(),
-        /* testRuleTimeoutMs*/ Optional.empty(),
+        /* testRuleTimeoutMs */ Optional.empty(),
+        /* testCaseTimeoutMs */ Optional.empty(),
         ImmutableMap.of("FOO", "BAR"),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
@@ -192,7 +195,8 @@ public class JUnitStepTest {
     JUnitStep junit = new JUnitStep(
         filesystem,
         ImmutableMap.of(),
-        /* testRuleTimeoutMs*/ Optional.empty(),
+        /* testRuleTimeoutMs */ Optional.empty(),
+        /* testCaseTimeoutMs */ Optional.empty(),
         ImmutableMap.of(),
         new ExternalJavaRuntimeLauncher("/foo/bar/custom/java"),
         args);
@@ -210,6 +214,7 @@ public class JUnitStepTest {
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
             buildIdArg,
             modulePathArg,
+            "-Dapple.awt.UIElement=true",
             "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
             vmArg1,
             vmArg2,

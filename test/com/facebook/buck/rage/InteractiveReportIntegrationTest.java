@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.TestBuildEnvironmentDescription;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -117,7 +118,7 @@ public class InteractiveReportIntegrationTest {
     throws IOException, InterruptedException {
     ProjectFilesystem filesystem = workspace.asCell().getFilesystem();
     ObjectMapper objectMapper = ObjectMappers.newDefaultInstance();
-    RageConfig rageConfig = RageBuckConfig.create(workspace.asCell().getBuckConfig());
+    RageConfig rageConfig = RageConfig.of(workspace.asCell().getBuckConfig());
     Clock clock = new DefaultClock();
     DefectReporter defectReporter = new DefaultDefectReporter(filesystem,
         objectMapper,
@@ -130,6 +131,8 @@ public class InteractiveReportIntegrationTest {
         new InteractiveReport(
             defectReporter,
             filesystem,
+            objectMapper,
+            new TestConsole(),
             outputStream,
             inputStream,
             TestBuildEnvironmentDescription.INSTANCE,

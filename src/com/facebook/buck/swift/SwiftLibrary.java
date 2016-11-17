@@ -107,7 +107,7 @@ class SwiftLibrary
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps(CxxPlatform cxxPlatform) {
+  public Iterable<NativeLinkable> getNativeLinkableDeps() {
     // TODO(bhamiltoncx, ryu2): Use pseudo targets to represent the Swift
     // runtime library's linker args here so NativeLinkables can
     // deduplicate the linker flags on the build target (which would be the same for
@@ -117,7 +117,15 @@ class SwiftLibrary
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(CxxPlatform cxxPlatform) {
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
+    throw new RuntimeException(
+        "SwiftLibrary does not support getting linkable exported deps " +
+            "without a specific platform.");
+  }
+
+  @Override
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
+      CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }

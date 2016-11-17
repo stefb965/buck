@@ -21,7 +21,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
@@ -53,9 +52,8 @@ public class Cell {
   private final ProjectFilesystem filesystem;
   private final Watchman watchman;
   private final BuckConfig config;
-  private final KnownBuildRuleTypes knownBuildRuleTypes;
   private final CellProvider cellProvider;
-  private final WatchmanDiagnosticCache watchmanDiagnosticCache;
+  private final Supplier<KnownBuildRuleTypes> knownBuildRuleTypesSupplier;
 
   private final Supplier<Integer> hashCodeSupplier = Suppliers.memoize(
       new Supplier<Integer>() {
@@ -74,17 +72,32 @@ public class Cell {
       final Watchman watchman,
       final BuckConfig config,
       final KnownBuildRuleTypesFactory knownBuildRuleTypesFactory,
-      final CellProvider cellProvider,
-      WatchmanDiagnosticCache watchmanDiagnosticCache) throws IOException, InterruptedException {
+      final CellProvider cellProvider) throws IOException, InterruptedException {
 
     this.knownRoots = knownRoots;
     this.filesystem = filesystem;
     this.watchman = watchman;
     this.config = config;
 
-    this.knownBuildRuleTypes = knownBuildRuleTypesFactory.create(config, filesystem);
+    // Stampede needs the Cell before it can materialize all the files required by
+    // knownBuildRuleTypesFactory (specifically java/javac), and as such we need to load this
+    // lazily when getKnownBuildRuleTypes() is called.
+    knownBuildRuleTypesSupplier = Suppliers.memoize(() -> {
+      try {
+        return knownBuildRuleTypesFactory.create(config, filesystem);
+      } catch (IOException e) {
+        throw new RuntimeException(String.format(
+            "Creation of KnownBuildRuleTypes failed for Cell rooted at [%s].",
+            filesystem.getRootPath()), e);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(String.format(
+            "Creation of KnownBuildRuleTypes failed for Cell rooted at [%s].",
+            filesystem.getRootPath()), e);
+      }
+    });
+
     this.cellProvider = cellProvider;
-    this.watchmanDiagnosticCache = watchmanDiagnosticCache;
   }
 
   public ProjectFilesystem getFilesystem() {
@@ -96,7 +109,7 @@ public class Cell {
   }
 
   public KnownBuildRuleTypes getKnownBuildRuleTypes() {
-    return knownBuildRuleTypes;
+    return knownBuildRuleTypesSupplier.get();
   }
 
   public BuckConfig getBuckConfig() {
@@ -187,10 +200,6 @@ public class Cell {
     return watchman;
   }
 
-  public WatchmanDiagnosticCache getWatchmanDiagnosticCache() {
-    return watchmanDiagnosticCache;
-  }
-
   /**
    * Callers are responsible for managing the life-cycle of the created {@link
    * ProjectBuildFileParser}.
@@ -207,8 +216,7 @@ public class Cell {
         config.getEnvironment(),
         eventBus,
         filesystem,
-        ignoreBuckAutodepsFiles,
-        watchmanDiagnosticCache);
+        ignoreBuckAutodepsFiles);
   }
 
   private ProjectBuildFileParserFactory createBuildFileParserFactory() {

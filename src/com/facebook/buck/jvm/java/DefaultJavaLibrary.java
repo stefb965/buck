@@ -49,7 +49,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -257,7 +256,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.exportedDeps = exportedDeps;
     this.providedDeps = providedDeps;
     this.additionalClasspathEntries = additionalClasspathEntries.stream()
-        .map(getProjectFilesystem().getAbsolutifier()::apply)
+        .map(getProjectFilesystem()::resolve)
         .collect(MoreCollectors.toImmutableSet());
     this.resourcesRoot = resourcesRoot;
     this.manifestFile = manifestFile;
@@ -429,24 +428,14 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     // We don't want to add these to the declared or transitive deps, since they're only used at
     // compile time.
     Collection<Path> provided = JavaLibraryClasspathProvider.getJavaLibraryDeps(providedDeps)
-        .transformAndConcat(
-            new Function<JavaLibrary, Collection<Path>>() {
-              @Override
-              public Collection<Path> apply(JavaLibrary input) {
-                return input.getOutputClasspaths();
-              }
-            })
+        .transformAndConcat(JavaLibrary::getOutputClasspaths)
         .filter(Objects::nonNull)
         .toSet();
 
     ProjectFilesystem projectFilesystem = getProjectFilesystem(); // NOPMD confused by lambda
-    Iterable<Path> declaredClasspaths = declaredClasspathDeps.transformAndConcat(
-        new Function<JavaLibrary, Iterable<Path>>() {
-          @Override
-          public Iterable<Path> apply(JavaLibrary input) {
-            return input.getOutputClasspaths();
-          }
-        }).transform(projectFilesystem::resolve);
+    Iterable<Path> declaredClasspaths = declaredClasspathDeps
+        .transformAndConcat(JavaLibrary::getOutputClasspaths)
+        .transform(projectFilesystem::resolve);
     // Only override the bootclasspath if this rule is supposed to compile Android code.
     ImmutableSortedSet<Path> declared = ImmutableSortedSet.<Path>naturalOrder()
         .addAll(declaredClasspaths)
@@ -487,9 +476,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         final Path usedClassesFilePath =
             getUsedClassesFilePath(getBuildTarget(), getProjectFilesystem());
         depFileOutputPath = getProjectFilesystem().getPathForRelativePath(usedClassesFilePath);
-        usedClassesFileWriter = new DefaultClassUsageFileWriter(
-            usedClassesFilePath,
-            new ClassUsageTracker());
+        usedClassesFileWriter = new DefaultClassUsageFileWriter(usedClassesFilePath);
 
         buildableContext.recordArtifact(usedClassesFilePath);
       } else {

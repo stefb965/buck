@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
@@ -26,7 +25,6 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
@@ -168,28 +166,24 @@ public class ExternalJavac implements Javac {
 
   @Override
   public int buildWithClasspath(
-      ExecutionContext context,
-      ProjectFilesystem filesystem,
-      SourcePathResolver resolver,
+      JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
       ImmutableSet<String> safeAnnotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory,
-      ClassUsageFileWriter usedClassesFileWriter,
-      Optional<StandardJavaFileManagerFactory> fileManagerFactory) throws InterruptedException {
+      Optional<Path> workingDirectory) throws InterruptedException {
     ImmutableList.Builder<String> command = ImmutableList.builder();
     command.add(
         pathToJavac.isLeft() ?
             pathToJavac.getLeft().toString() :
-            resolver.getAbsolutePath(pathToJavac.getRight()).toString());
+            context.getAbsolutePathsForInputs().get(0).toString());
     command.addAll(options);
 
     ImmutableList<Path> expandedSources;
     try {
       expandedSources = getExpandedSourcePaths(
-          filesystem,
+          context.getProjectFilesystem(),
           invokingRule,
           javaSourceFilePaths,
           workingDirectory);
@@ -200,14 +194,14 @@ public class ExternalJavac implements Javac {
           workingDirectory);
     }
     try {
-      filesystem.writeLinesToPath(
+      context.getProjectFilesystem().writeLinesToPath(
           FluentIterable.from(expandedSources)
               .transform(Object::toString)
               .transform(ARGFILES_ESCAPER),
           pathToSrcsList);
       command.add("@" + pathToSrcsList);
     } catch (IOException e) {
-      context.logError(
+      context.getEventSink().reportThrowable(
           e,
           "Cannot write list of .java files to compile to %s file! Terminating compilation.",
           pathToSrcsList);
@@ -220,7 +214,7 @@ public class ExternalJavac implements Javac {
       ProcessExecutorParams params = ProcessExecutorParams.builder()
           .setCommand(command.build())
           .setEnvironment(context.getEnvironment())
-          .setDirectory(filesystem.getRootPath().toAbsolutePath())
+          .setDirectory(context.getProjectFilesystem().getRootPath().toAbsolutePath())
           .build();
       ProcessExecutor.Result result = context.getProcessExecutor().launchAndExecute(params);
       exitCode = result.getExitCode();
@@ -258,9 +252,9 @@ public class ExternalJavac implements Javac {
             projectFilesystem.resolve(workingDirectory.get()),
             Unzip.ExistingFileMode.OVERWRITE);
         sources.addAll(
-            FluentIterable.from(zipPaths)
-                .filter(
-                    input -> input.toString().endsWith(".java")));
+            zipPaths.stream()
+                .filter(input -> input.toString().endsWith(".java"))
+                .iterator());
       }
     }
     return sources.build();

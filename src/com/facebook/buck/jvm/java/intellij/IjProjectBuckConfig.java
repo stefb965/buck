@@ -21,7 +21,6 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Sets;
 
 import java.util.Collections;
-import java.util.Map;
 import java.util.Optional;
 
 public class IjProjectBuckConfig {
@@ -33,21 +32,6 @@ public class IjProjectBuckConfig {
   }
 
   public static IjProjectConfig create(BuckConfig buckConfig) {
-    Optional<String> javaLibrarySdkNamesOption = buckConfig.getValue(
-        INTELLIJ_BUCK_CONFIG_SECTION,
-        "java_library_sdk_names");
-
-    Map<String, String> javaLibrarySdkNames;
-    if (javaLibrarySdkNamesOption.isPresent()) {
-      javaLibrarySdkNames = Splitter.on(',')
-          .omitEmptyStrings()
-          .trimResults()
-          .withKeyValueSeparator(Splitter.on("=>").trimResults())
-          .split(javaLibrarySdkNamesOption.get());
-    } else {
-      javaLibrarySdkNames = Collections.emptyMap();
-    }
-
     Optional<String> excludedResourcePathsOption = buckConfig.getValue(
         INTELLIJ_BUCK_CONFIG_SECTION,
         "excluded_resource_paths");
@@ -69,13 +53,20 @@ public class IjProjectBuckConfig {
                 "disable_r_java_idea_generator",
                 false)
         )
-        .setJavaBuckConfig(new JavaBuckConfig(buckConfig))
+        .setJavaBuckConfig(buckConfig.getView(JavaBuckConfig.class))
         .setBuckConfig(buckConfig)
-        .setJavaLibrarySdkNamesBySourceLevel(javaLibrarySdkNames)
         .setProjectJdkName(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "jdk_name"))
         .setProjectJdkType(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "jdk_type"))
+        .setAndroidModuleSdkName(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "android_module_sdk_name"))
+        .setAndroidModuleSdkType(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "android_module_sdk_type"))
+        .setJavaModuleSdkName(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_name"))
+        .setJavaModuleSdkType(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_type"))
         .setProjectLanguageLevel(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "language_level"))
         .setExcludedResourcePaths(excludedResourcePaths)

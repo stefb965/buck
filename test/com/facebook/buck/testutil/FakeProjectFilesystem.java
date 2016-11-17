@@ -44,7 +44,6 @@ import com.google.common.jimfs.Jimfs;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -70,6 +69,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -269,10 +269,6 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
     this(new FakeClock(0), DEFAULT_ROOT, files);
   }
 
-  public FakeProjectFilesystem(Clock clock, File root, Set<Path> files) {
-    this(clock, root.toPath(), files);
-  }
-
   public FakeProjectFilesystem(Clock clock, Path root, Set<Path> files) {
     // For testing, we always use a DefaultProjectFilesystemDelegate so that the logic being
     // exercised is always the same, even if a test using FakeProjectFilesystem is used on EdenFS.
@@ -403,7 +399,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
    * Does not support symlinks.
    */
   @Override
-  public ImmutableCollection<Path> getDirectoryContents(final Path pathRelativeToProjectRoot)
+  public final ImmutableCollection<Path> getDirectoryContents(final Path pathRelativeToProjectRoot)
       throws IOException {
     Preconditions.checkState(isDirectory(pathRelativeToProjectRoot));
     return FluentIterable
@@ -416,7 +412,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
               }
               return MorePaths.getParentOrEmpty(input).equals(pathRelativeToProjectRoot);
             })
-        .toList();
+        .toSortedList(Comparator.naturalOrder());
   }
 
   @Override
@@ -436,7 +432,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
   }
 
   @Override
-  public ImmutableSortedSet<Path> getSortedMatchingDirectoryContents(
+  public ImmutableSortedSet<Path> getMtimeSortedMatchingDirectoryContents(
       final Path pathRelativeToProjectRoot,
       String globPattern)
       throws IOException {
@@ -519,10 +515,9 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
 
   @Override
   public void mkdirs(Path path) throws IOException {
-    for (int i = 0; i < path.getNameCount(); i++) {
-      Path subpath = path.subpath(0, i + 1);
-      directories.add(subpath);
-      fileLastModifiedTimes.put(subpath, FileTime.fromMillis(clock.currentTimeMillis()));
+    for (Path parent = path; parent != null; parent = parent.getParent()) {
+      directories.add(parent);
+      fileLastModifiedTimes.put(parent, FileTime.fromMillis(clock.currentTimeMillis()));
     }
   }
 
@@ -733,7 +728,7 @@ public class FakeProjectFilesystem extends ProjectFilesystem {
    * {@code fileVisitor}.
    */
   @Override
-  public void walkRelativeFileTree(
+  public final void walkRelativeFileTree(
       Path path,
       EnumSet<FileVisitOption> visitOptions,
       FileVisitor<Path> fileVisitor) throws IOException {

@@ -144,10 +144,6 @@ public class AndroidBinary
     boolean isBuildWithObfuscation() {
       return this == RELEASE;
     }
-
-    final boolean isCrunchPngFiles() {
-      return this == RELEASE;
-    }
   }
 
   static enum ExopackageMode {
@@ -358,10 +354,6 @@ public class AndroidBinary
 
   public Optional<List<String>> getProguardJvmArgs() {
     return proguardJvmArgs;
-  }
-
-  public Optional<Boolean> getPackageAssetLibraries() {
-    return packageAssetLibraries;
   }
 
   public ManifestEntries getManifestEntries() {
@@ -751,17 +743,18 @@ public class AndroidBinary
         protected void addEnvironmentVariables(
             ExecutionContext context,
             ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
-          Function<Path, Path> absolutifier = getProjectFilesystem().getAbsolutifier();
           environmentVariablesBuilder.put(
-              "IN_JARS_DIR", absolutifier.apply(preprocessJavaClassesInDir).toString());
+              "IN_JARS_DIR",
+              getProjectFilesystem().resolve(preprocessJavaClassesInDir).toString());
           environmentVariablesBuilder.put(
-              "OUT_JARS_DIR", absolutifier.apply(preprocessJavaClassesOutDir).toString());
+              "OUT_JARS_DIR",
+              getProjectFilesystem().resolve(preprocessJavaClassesOutDir).toString());
 
           AndroidPlatformTarget platformTarget = context.getAndroidPlatformTarget();
           String bootclasspath = Joiner.on(':').join(
               Iterables.transform(
                   platformTarget.getBootclasspathEntries(),
-                  absolutifier));
+                  getProjectFilesystem()::resolve));
 
           environmentVariablesBuilder.put("ANDROID_BOOTCLASSPATH", bootclasspath);
         }

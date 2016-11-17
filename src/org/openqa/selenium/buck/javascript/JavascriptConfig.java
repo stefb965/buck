@@ -23,6 +23,7 @@ import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 
 import java.util.Optional;
@@ -49,7 +50,11 @@ public class JavascriptConfig {
   }
 
   public SourcePath getClosureCompilerSourcePath(Optional<SourcePath> compilerPath) {
-    return compilerPath.orElse(delegate.getRequiredSourcePath("tools", "closure_compiler"));
+    Optional<SourcePath> path = delegate.getSourcePath("tools", "closure_compiler");
+    if (!path.isPresent()) {
+      throw new HumanReadableException("Unable to determine closure compiler to use");
+    }
+    return compilerPath.orElse(path.get());
   }
 }
 

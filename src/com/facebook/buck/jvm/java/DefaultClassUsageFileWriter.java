@@ -33,11 +33,10 @@ import javax.tools.StandardJavaFileManager;
 public final class DefaultClassUsageFileWriter implements ClassUsageFileWriter {
 
   private final Path relativePath;
-  private final ClassUsageTracker tracker;
+  private final ClassUsageTracker tracker = new ClassUsageTracker();
 
-  public DefaultClassUsageFileWriter(final Path relativePath, ClassUsageTracker tracker) {
+  public DefaultClassUsageFileWriter(Path relativePath) {
     this.relativePath = relativePath;
-    this.tracker = tracker;
   }
 
   @Override
@@ -50,7 +49,7 @@ public final class DefaultClassUsageFileWriter implements ClassUsageFileWriter {
     ImmutableSetMultimap<Path, Path> classUsageMap = tracker.getClassUsageMap();
     try {
       objectMapper.writeValue(
-          filesystem.getAbsolutifier().apply(relativePath).toFile(),
+          filesystem.resolve(relativePath).toFile(),
           relativizeMap(classUsageMap, filesystem));
     } catch (IOException e) {
       throw new HumanReadableException(e, "Unable to write used classes file.");

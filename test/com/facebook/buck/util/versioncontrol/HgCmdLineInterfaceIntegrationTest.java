@@ -58,7 +58,7 @@ public class HgCmdLineInterfaceIntegrationTest {
   private static final String MASTER_THREE_ID = "adf7a0";
 
   private static final String HG_REPOS_ZIP = "hg_repos.zip";
-  private static final String REPOS_DIR = "repos";
+  private static final String REPOS_DIR = "hg_repos";
   private static final String REPO_TWO_DIR = "hg_repo_two";
   private static final String REPO_THREE_DIR = "hg_repo_three";
   private static final String REPO_WITH_SUB_DIR = "hg_repo_with_subdir";
@@ -146,7 +146,9 @@ public class HgCmdLineInterfaceIntegrationTest {
   @Test
   public void whenWorkingDirectoryChangedThenHasWorkingDirectoryChangesReturnsTrue()
       throws VersionControlCommandFailedException, InterruptedException {
-    assertThat(repoThreeCmdLine.changedFiles("."), hasSize(Matchers.greaterThan(0)));
+    assertEquals(
+        ImmutableSet.of("A tracked_change", "? local_change"),
+        repoThreeCmdLine.changedFiles("."));
   }
 
   @Test
@@ -180,16 +182,22 @@ public class HgCmdLineInterfaceIntegrationTest {
   @Test
   public void testChangedFilesFromHead()
       throws VersionControlCommandFailedException, InterruptedException {
-    ImmutableSet<String> changedFiles = repoThreeCmdLine.changedFiles(".");
-    assertThat(changedFiles, Matchers.contains("? local_change"));
+    assertEquals(
+        ImmutableSet.of("A tracked_change", "? local_change"),
+        repoThreeCmdLine.changedFiles("."));
   }
 
   @Test
   public void testChangedFilesFromCommonAncestor()
       throws VersionControlCommandFailedException, InterruptedException {
     ImmutableSet<String> changedFiles = repoThreeCmdLine.changedFiles("ancestor(., master3)");
-    assertThat(changedFiles,
-        Matchers.containsInAnyOrder("A change3", "A change3-2", "? local_change"));
+    assertThat(
+        changedFiles,
+        Matchers.containsInAnyOrder(
+            "A tracked_change",
+            "A change3",
+            "A change3-2",
+            "? local_change"));
   }
 
   @Test
@@ -238,27 +246,6 @@ public class HgCmdLineInterfaceIntegrationTest {
   }
 
   @Test
-  public void testAllBookmarks()
-      throws VersionControlCommandFailedException, InterruptedException {
-    try {
-      assertEquals(
-          "{branch_from_master2=3:2911b3cab6b2, branch_from_master3=5:dee6702e3d5e, " +
-              "master1=0:b870f77a2738, master2=1:b1fd7e5896af, master3=2:adf7a03ed6f1}",
-          repoThreeCmdLine.allBookmarks().toString());
-    } catch (VersionControlCommandFailedException e) {
-      if (!e.getMessage().contains("option --all not recognized")) {
-        throw new VersionControlCommandFailedException(e.getCause());
-      }
-    }
-  }
-
-  @Test
-  public void testUntrackedFiles()
-      throws VersionControlCommandFailedException, InterruptedException {
-    assertEquals(ImmutableSet.of("? local_change"), repoThreeCmdLine.untrackedFiles());
-  }
-
-  @Test
   public void testCreateCmdLineInterfaceUsingHgSubDir()
       throws VersionControlCommandFailedException, InterruptedException {
     VersionControlCmdLineInterface subDirCmdLineInterface =
@@ -275,15 +262,20 @@ public class HgCmdLineInterfaceIntegrationTest {
   }
 
   @Test
-  public void testTrackedBookmarksOffRevisionId() throws InterruptedException {
-    ImmutableSet<String> bookmarks = ImmutableSet.of("master2");
+  public void testTrackedBookmarksOffRevisionId()
+      throws InterruptedException, VersionControlCommandFailedException {
+    ImmutableMap<String, String> bookmarks = ImmutableMap.of(
+        "branch_from_master2",
+        "2911b3cab6b24374a3649ebb96b0e53324e9c02e");
     assertEquals(
         bookmarks,
-        repoThreeCmdLine.trackedBookmarksOffRevisionId("b1fd7e", "2911b3", bookmarks));
-    bookmarks = ImmutableSet.of("master3");
+        repoThreeCmdLine.bookmarksRevisionsId(bookmarks.keySet()));
+    bookmarks = ImmutableMap.of(
+        "branch_from_master3",
+        "dee6702e3d5e38a86b27b159a8a0a34205e2065d");
     assertEquals(
         bookmarks,
-        repoThreeCmdLine.trackedBookmarksOffRevisionId("dee670", "adf7a0", bookmarks));
+        repoThreeCmdLine.bookmarksRevisionsId(bookmarks.keySet()));
   }
 
   @Test

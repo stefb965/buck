@@ -86,9 +86,7 @@ public class DistBuildState {
           public FileHashCache load(@Nonnull ProjectFilesystem filesystem) {
             FileHashCache cellCache = DefaultFileHashCache.createDefaultFileHashCache(filesystem);
             FileHashCache buckOutCache = DefaultFileHashCache.createBuckOutFileHashCache(
-                new ProjectFilesystem(
-                    filesystem.getRootPath(),
-                    ImmutableSet.of()),
+                filesystem.replaceBlacklistedPaths(ImmutableSet.of()),
                 filesystem.getBuckPaths().getBuckOut());
             return new StackedFileHashCache(
                 ImmutableList.of(cellCache, buckOutCache));
@@ -146,8 +144,7 @@ public class DistBuildState {
         CellProvider.createForDistributedBuild(
             cellConfigs.build(),
             cellFilesystems.build(),
-            knownBuildRuleTypesFactory,
-            rootCell.getWatchmanDiagnosticCache());
+            knownBuildRuleTypesFactory);
 
     ImmutableBiMap<Integer, Cell> cells = ImmutableBiMap.copyOf(
         Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));

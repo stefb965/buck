@@ -86,8 +86,8 @@ public class Omnibus {
       NativeLinkable nativeLinkable,
       CxxPlatform cxxPlatform) {
     return Iterables.concat(
-        nativeLinkable.getNativeLinkableDeps(cxxPlatform),
-        nativeLinkable.getNativeLinkableExportedDeps(cxxPlatform));
+        nativeLinkable.getNativeLinkableDepsForPlatform(cxxPlatform),
+        nativeLinkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform));
   }
 
   // Returned the dependencies for the given node, which can either be a `NativeLinkable` or a
@@ -527,7 +527,7 @@ public class Omnibus {
 
     // Walk the graph in topological order, appending each nodes contributions to the link.
     ImmutableList<BuildTarget> targets =
-        TopologicalSort.sort(spec.getGraph(), x -> true).reverse();
+        TopologicalSort.sort(spec.getGraph()).reverse();
     for (BuildTarget target : targets) {
 
       // If this is a root, just place the shared library we've linked above onto the link line.

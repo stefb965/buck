@@ -114,6 +114,14 @@ public final class Ansi {
     return wrapWithColor(INFORMATION_SEQUENCE, text);
   }
 
+  public String asGreenText(String text) {
+    return wrapWithColor(GREEN, text);
+  }
+
+  public String asRedText(String text) {
+    return wrapWithColor(RED, text);
+  }
+
   public String getHighlightedWarningSequence() {
     return isAnsiTerminal ? HIGHLIGHTED_ERROR_SEQUENCE : "";
   }
@@ -144,24 +152,12 @@ public final class Ansi {
     }
   }
 
-  public void printHighlightedFailureText(PrintStream stream, String text) {
-    stream.print(asHighlightedFailureText(text));
-  }
-
   public void printHighlightedSuccessText(PrintStream stream, String text) {
     stream.print(asHighlightedSuccessText(text));
   }
 
-  public void printlnHighlightedSuccessText(PrintStream stream, String text) {
-    stream.println(asHighlightedSuccessText(text));
-  }
-
   public void printlnHighlightedFailureText(PrintStream stream, String text) {
     stream.println(asHighlightedFailureText(text));
-  }
-
-  public void printlnInformationText(PrintStream stream, String text) {
-    stream.println(asInformationText(text));
   }
 
   public String asHighlightedStatusText(SeverityLevel level, String text) {
@@ -175,22 +171,6 @@ public final class Ansi {
       default:
         String message = String.format("Unexpected SeverityLevel; cannot highlight '%s'!", level);
         throw new IllegalArgumentException(message);
-    }
-  }
-
-  public void printHighlightedStatusText(boolean isSuccess, PrintStream stream, String text) {
-    if (isSuccess) {
-      printHighlightedSuccessText(stream, text);
-    } else {
-      printHighlightedFailureText(stream, text);
-    }
-  }
-
-  public void printlnHighlightedStatusText(boolean isSuccess, PrintStream stream, String text) {
-    if (isSuccess) {
-      printlnHighlightedSuccessText(stream, text);
-    } else {
-      printlnHighlightedFailureText(stream, text);
     }
   }
 

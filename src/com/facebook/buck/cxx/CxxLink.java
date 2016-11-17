@@ -32,6 +32,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -89,7 +90,7 @@ public class CxxLink
     Path scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
     Path argFilePath = getProjectFilesystem().getRootPath().resolve(
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__argfile.txt"));
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.argsfile"));
     Path fileListPath = getProjectFilesystem().getRootPath().resolve(
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__filelist.txt"));
 
@@ -105,13 +106,16 @@ public class CxxLink
     return ImmutableList.of(
         new MkdirStep(getProjectFilesystem(), output.getParent()),
         new MakeCleanDirectoryStep(getProjectFilesystem(), scratchDir),
-        new CxxPrepareForLinkStep(
+        new RmStep(getProjectFilesystem(), argFilePath, true),
+        new RmStep(getProjectFilesystem(), fileListPath, true),
+        CxxPrepareForLinkStep.create(
             argFilePath,
             fileListPath,
             linker.fileList(fileListPath),
             output,
             args,
-            linker),
+            linker,
+            getBuildTarget().getCellPath()),
         new CxxLinkStep(
             getProjectFilesystem().getRootPath(),
             linker.getEnvironment(getResolver()),
@@ -121,7 +125,8 @@ public class CxxLink
         new FileScrubberStep(
             getProjectFilesystem(),
             output,
-            linker.getScrubbers(cellRoots.build())));
+            linker.getScrubbers(cellRoots.build())),
+        new RmStep(getProjectFilesystem(), argFilePath, false));
   }
 
   @Override

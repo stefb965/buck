@@ -16,7 +16,6 @@
 
 package com.facebook.buck.doctor;
 
-import static com.facebook.buck.doctor.config.DoctorEndpointResponse.StepStatus;
 import static org.hamcrest.junit.MatcherAssume.assumeThat;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
@@ -27,6 +26,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointRequest;
 import com.facebook.buck.doctor.config.DoctorEndpointResponse;
+import com.facebook.buck.doctor.config.DoctorSuggestion;
 import com.facebook.buck.rage.BuildLogEntry;
 import com.facebook.buck.rage.BuildLogHelper;
 import com.facebook.buck.rage.UserInput;
@@ -96,11 +96,16 @@ public class DoctorCommandIntegrationTest {
     objectMapper = ObjectMappers.newDefaultInstance();
 
     doctorResponse = DoctorEndpointResponse.of(
-          Optional.empty(),
-          StepStatus.OK,
-          StepStatus.WARNING,
-          StepStatus.OK,
-          ImmutableList.of("Suggestion no1", "Suggestion no2"));
+        Optional.empty(),
+        ImmutableList.of(
+            DoctorSuggestion.of(
+                DoctorSuggestion.StepStatus.ERROR,
+                Optional.empty(),
+                "Suggestion no1"),
+            DoctorSuggestion.of(
+                DoctorSuggestion.StepStatus.WARNING,
+                Optional.of("Area"),
+                "Suggestion no2")));
 
     httpd = new HttpdForTests();
     httpd.addHandler(createHttpdHandler(
@@ -120,10 +125,13 @@ public class DoctorCommandIntegrationTest {
     DoctorReportHelper helper = createDoctorHelper(
         (new UserInputFixture("0")).getUserInput(),
         DoctorConfig.of(FakeBuckConfig.builder().build()));
-    BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
-    BuildLogEntry entry = helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
+    BuildLogHelper buildLogHelper = new BuildLogHelper(
+        workspace.asCell().getFilesystem(),
+        objectMapper);
+    Optional<BuildLogEntry> entry =
+        helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
 
-    DoctorEndpointRequest request = helper.generateEndpointRequest(entry, Optional.empty());
+    DoctorEndpointRequest request = helper.generateEndpointRequest(entry.get(), Optional.empty());
     DoctorEndpointResponse response = helper.uploadRequest(request);
     assertEquals(
         "Please define URL",
@@ -139,23 +147,20 @@ public class DoctorCommandIntegrationTest {
         (new UserInputFixture("0")).getUserInput(),
         createDoctorConfig(httpd));
 
-    BuildLogHelper buildLogHelper = new BuildLogHelper(workspace.asCell().getFilesystem());
-    BuildLogEntry entry = helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
+    BuildLogHelper buildLogHelper = new BuildLogHelper(
+        workspace.asCell().getFilesystem(),
+        objectMapper);
+    Optional<BuildLogEntry> entry =
+        helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
 
-    DoctorEndpointRequest request = helper.generateEndpointRequest(entry, Optional.empty());
+    DoctorEndpointRequest request = helper.generateEndpointRequest(entry.get(), Optional.empty());
     DoctorEndpointResponse response = helper.uploadRequest(request);
     helper.presentResponse(response);
 
     assertEquals(response, doctorResponse);
     assertEquals(
-        ((TestConsole) helper.getConsole()).getTextWrittenToStdOut(),
-        "\n:: Doctor results\n" +
-            "  [OK ] Environment\n" +
-            "  [OK ] Parsing\n" +
-            "  [Warning ] Remote cache\n" +
-            ":: Suggestions\n" +
-            "- Suggestion no1\n" +
-            "- Suggestion no2\n\n");
+        "\n:: Suggestions\n- [Error] Suggestion no1\n- [Warning][Area] Suggestion no2\n\n",
+        ((TestConsole) helper.getConsole()).getTextWrittenToStdOut());
     }
 
   private AbstractHandler createHttpdHandler(

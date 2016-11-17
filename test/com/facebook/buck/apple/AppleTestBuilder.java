@@ -49,18 +49,8 @@ public final class AppleTestBuilder
     return this;
   }
 
-  public AppleTestBuilder setXcodeProductType(Optional<String> xcodeProductType) {
-    arg.xcodeProductType = xcodeProductType;
-    return this;
-  }
-
   public AppleTestBuilder setInfoPlist(SourcePath infoPlist) {
     arg.infoPlist = infoPlist;
-    return this;
-  }
-
-  public AppleTestBuilder setCanGroup(Optional<Boolean> value) {
-    arg.canGroup = value;
     return this;
   }
 

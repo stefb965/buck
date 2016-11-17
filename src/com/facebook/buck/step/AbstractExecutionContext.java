@@ -87,6 +87,9 @@ abstract class AbstractExecutionContext implements Closeable {
   abstract Optional<AdbOptions> getAdbOptions();
 
   @Value.Parameter
+  abstract Optional<ConcurrentMap<String, WorkerProcessPool>> getPersistentWorkerPools();
+
+  @Value.Parameter
   abstract BuildStamper getBuildStamper();
 
   /**
@@ -105,6 +108,11 @@ abstract class AbstractExecutionContext implements Closeable {
 
   @Value.Default
   public boolean isCodeCoverageEnabled() {
+    return false;
+  }
+
+  @Value.Default
+  public boolean isInclNoLocationClassesEnabled() {
     return false;
   }
 
@@ -215,7 +223,7 @@ abstract class AbstractExecutionContext implements Closeable {
     return ExecutionContext.builder()
         .from(this)
         .setConsole(console)
-        .setProcessExecutor(new DefaultProcessExecutor(console))
+        .setProcessExecutor(getProcessExecutor().cloneWithOutputStreams(newStdout, newStderr))
         .setClassLoaderCache(getClassLoaderCache().addRef())
         .setWorkerProcessPools(new ConcurrentHashMap<String, WorkerProcessPool>())
         .build();

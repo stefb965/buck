@@ -18,7 +18,6 @@ package com.facebook.buck.jvm.java.intellij;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableMap;
 
 import org.immutables.value.Value;
 
@@ -33,20 +32,22 @@ abstract class AbstractIjProjectConfig {
 
   protected abstract BuckConfig getBuckConfig();
 
-  protected abstract ImmutableMap<String, String> getJavaLibrarySdkNamesBySourceLevel();
-
   @Value.Default
   public boolean isAutogenerateAndroidFacetSourcesEnabled() {
     return true;
   }
 
-  public Optional<String> getJavaLibrarySdkNameForSourceLevel(String sourceLevel) {
-    return Optional.ofNullable(getJavaLibrarySdkNamesBySourceLevel().get(sourceLevel));
-  }
-
   public abstract Optional<String> getProjectJdkName();
 
   public abstract Optional<String> getProjectJdkType();
+
+  public abstract Optional<String> getAndroidModuleSdkName();
+
+  public abstract Optional<String> getAndroidModuleSdkType();
+
+  public abstract Optional<String> getJavaModuleSdkName();
+
+  public abstract Optional<String> getJavaModuleSdkType();
 
   public abstract Optional<String> getProjectLanguageLevel();
 

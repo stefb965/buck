@@ -25,7 +25,6 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
@@ -65,16 +64,6 @@ public class TestCellBuilder {
     return this;
   }
 
-  public TestCellBuilder setAndroidDirectoryResolver(AndroidDirectoryResolver resolver) {
-    this.androidDirectoryResolver = resolver;
-    return this;
-  }
-
-  public TestCellBuilder setBuildFileParserFactory(ProjectBuildFileParserFactory factory) {
-    this.parserFactory = factory;
-    return this;
-  }
-
   public TestCellBuilder setWatchman(Watchman watchman) {
     this.watchman = watchman;
     return this;
@@ -102,8 +91,7 @@ public class TestCellBuilder {
           watchman,
           config,
           cellConfig,
-          typesFactory,
-          new WatchmanDiagnosticCache()).getCellByPath(filesystem.getRootPath());
+          typesFactory).getCellByPath(filesystem.getRootPath());
     }
 
     // The constructor for `Cell` is private, and it's in such a central location I don't really

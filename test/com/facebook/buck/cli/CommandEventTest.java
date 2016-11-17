@@ -16,10 +16,11 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.event.TestEventConfigerator.configureTestEvent;
+import static com.facebook.buck.event.TestEventConfigurator.configureTestEvent;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.event.CommandEvent;
 import com.google.common.collect.ImmutableList;
 
 import org.hamcrest.Matchers;

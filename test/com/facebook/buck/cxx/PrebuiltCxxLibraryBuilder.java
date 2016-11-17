@@ -55,7 +55,7 @@ public class PrebuiltCxxLibraryBuilder
   }
 
   public PrebuiltCxxLibraryBuilder setLinkWithoutSoname(boolean linkWithoutSoname) {
-    arg.linkWithoutSoname = Optional.of(linkWithoutSoname);
+    arg.linkWithoutSoname = linkWithoutSoname;
     return this;
   }
 
@@ -70,15 +70,6 @@ public class PrebuiltCxxLibraryBuilder
     return this;
   }
 
-  public PrebuiltCxxLibraryBuilder setExportedPlatformHeaders(
-      String cxxPlatform,
-      SourceList exportedHeaders) {
-    return setExportedPlatformHeaders(
-        PatternMatchedCollection.<SourceList>builder()
-            .add(Pattern.compile(cxxPlatform), exportedHeaders)
-            .build());
-  }
-
   public PrebuiltCxxLibraryBuilder setHeaderNamespace(String headerNamespace) {
     arg.headerNamespace = Optional.of(headerNamespace);
     return this;
@@ -90,17 +81,12 @@ public class PrebuiltCxxLibraryBuilder
   }
 
   public PrebuiltCxxLibraryBuilder setProvided(boolean provided) {
-    arg.provided = Optional.of(provided);
+    arg.provided = provided;
     return this;
   }
 
   public PrebuiltCxxLibraryBuilder setExportedLinkerFlags(ImmutableList<String> linkerFlags) {
     arg.exportedLinkerFlags = linkerFlags;
-    return this;
-  }
-
-  public PrebuiltCxxLibraryBuilder setLinkWhole(boolean linkWhole) {
-    arg.linkWhole = Optional.of(linkWhole);
     return this;
   }
 

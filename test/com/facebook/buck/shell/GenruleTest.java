@@ -23,7 +23,6 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -32,12 +31,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
+import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -64,6 +63,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.hash.Hashing;
 
 import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
@@ -257,7 +257,7 @@ public class GenruleTest {
   }
 
   private GenruleBuilder createGenruleBuilderThatUsesWorkerMacro(
-      BuildRuleResolver resolver) throws NoSuchBuildTargetException {
+      BuildRuleResolver resolver) throws NoSuchBuildTargetException, IOException {
     /*
      * Produces a GenruleBuilder that when built produces a Genrule that uses a $(worker) macro
      * that corresponds to:
@@ -284,10 +284,15 @@ public class GenruleTest {
         .setMain(new FakeSourcePath("bin/exe"))
         .build(resolver);
 
-    WorkerToolBuilder
+    DefaultWorkerTool workerTool = (DefaultWorkerTool) WorkerToolBuilder
         .newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
         .setExe(shBinaryRule.getBuildTarget())
         .build(resolver);
+    workerTool.getBuildOutputInitializer().setBuildOutput(
+        workerTool.initializeFromDisk(
+            new FakeOnDiskBuildInfo().putMetadata(
+                BuildInfo.MetadataKey.RULE_KEY,
+                Hashing.sha1().hashLong(0).toString())));
 
     return GenruleBuilder
         .newGenruleBuilder(BuildTargetFactory.newInstance("//:genrule_with_worker"))
@@ -296,7 +301,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testGenruleWithWorkerMacroUsesSpecialShellStep() throws NoSuchBuildTargetException {
+  public void testGenruleWithWorkerMacroUsesSpecialShellStep() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule genrule = createGenruleBuilderThatUsesWorkerMacro(ruleResolver).build(ruleResolver);
@@ -324,7 +329,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testIsWorkerGenruleReturnsTrue() throws NoSuchBuildTargetException {
+  public void testIsWorkerGenruleReturnsTrue() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule genrule = createGenruleBuilderThatUsesWorkerMacro(ruleResolver).build(ruleResolver);
@@ -345,7 +350,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testConstructingGenruleWithBadWorkerMacroThrows() throws NoSuchBuildTargetException {
+  public void testConstructingGenruleWithBadWorkerMacroThrows() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     GenruleBuilder genruleBuilder = createGenruleBuilderThatUsesWorkerMacro(ruleResolver);
@@ -383,49 +388,6 @@ public class GenruleTest {
         .build(ruleResolver);
 
     assertThat(genrule.getDeps(), Matchers.hasItems(shBinaryRule, workerToolRule));
-  }
-
-  @Test
-  public void testDepsEnvironmentVariableIsComplete() throws Exception {
-    BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildTarget depTarget = BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:bar");
-    BuildRule dep = new FakeBuildRule(depTarget, new SourcePathResolver(resolver)) {
-      @Override
-      public Path getPathToOutput() {
-        return filesystem.getBuckPaths().getGenDir().resolve("foo/bar.jar");
-      }
-    };
-    resolver.addToIndex(dep);
-
-    BuildRule genrule = GenruleBuilder
-        .newGenruleBuilder(
-            BuildTargetFactory.newInstance(filesystem.getRootPath(), "//foo:baz"))
-        .setBash("cat $DEPS > $OUT")
-        .setCmdExe("echo %DEPS% > %OUT%")
-        .setOut("deps.txt")
-        .setSrcs(
-            ImmutableList.of(new BuildTargetSourcePath(dep.getBuildTarget())))
-        .build(resolver, filesystem);
-
-    AbstractGenruleStep genruleStep = ((Genrule) genrule).createGenruleStep();
-    Platform platform = Platform.detect() == Platform.WINDOWS ?
-        Platform.WINDOWS : Platform.LINUX;
-    ExecutionContext context = newEmptyExecutionContext(platform);
-    ImmutableMap<String, String> environmentVariables =
-        genruleStep.getEnvironmentVariables(context);
-    assertEquals(
-        "Make sure that the use of $DEPS pulls in $GEN_DIR, as well.",
-        ImmutableMap.of(
-            "DEPS", MorePaths.pathWithPlatformSeparators("$GEN_DIR/foo/bar.jar"),
-            "GEN_DIR", filesystem.resolve("buck-out/gen").toString(),
-            "OUT", filesystem.resolve("buck-out/gen/foo/baz/deps.txt").toString()),
-        environmentVariables);
-
-    // Ensure that $GEN_DIR is declared before $DEPS.
-    List<String> keysInOrder = ImmutableList.copyOf(environmentVariables.keySet());
-    assertEquals("GEN_DIR", keysInOrder.get(1));
-    assertEquals("DEPS", keysInOrder.get(2));
   }
 
   private ExecutionContext newEmptyExecutionContext(Platform platform) {

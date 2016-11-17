@@ -1,6 +1,6 @@
 java_test(
   name = 'ExceedsAnnotationTimeoutTest',
-  srcs = glob(['ExceedsAnnotationTimeoutTest.java']),
+  srcs = ['ExceedsAnnotationTimeoutTest.java'],
   deps = [
     ':junit',
   ],
@@ -8,10 +8,19 @@ java_test(
 
 java_test(
   name = 'TimeoutChangesBehaviorTest',
-  srcs = glob(['TimeoutChangesBehaviorTest.java']),
+  srcs = ['TimeoutChangesBehaviorTest.java'],
   deps = [
     ':junit',
   ],
+)
+
+java_test(
+  name = 'SleepTest',
+  srcs = ['SleepTest.java'],
+  deps = [
+    ':junit',
+  ],
+  test_case_timeout_ms = 50,
 )
 
 prebuilt_jar(

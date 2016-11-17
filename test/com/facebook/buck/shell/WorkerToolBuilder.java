@@ -16,16 +16,17 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.google.common.collect.ImmutableList;
 
 import java.util.Optional;
 
-import javax.annotation.Nullable;
-
 public class WorkerToolBuilder extends AbstractNodeBuilder<WorkerToolDescription.Arg> {
   private WorkerToolBuilder(BuildTarget target) {
-    super(new WorkerToolDescription(), target);
+    super(new WorkerToolDescription(FakeBuckConfig.builder().build()), target);
   }
 
   public static WorkerToolBuilder newWorkerToolBuilder(BuildTarget target) {
@@ -37,8 +38,8 @@ public class WorkerToolBuilder extends AbstractNodeBuilder<WorkerToolDescription
     return this;
   }
 
-  public WorkerToolBuilder setArgs(@Nullable String args) {
-    arg.args = Optional.ofNullable(args);
+  public WorkerToolBuilder setArgs(String... args) {
+    arg.args = Either.ofRight(ImmutableList.copyOf(args));
     return this;
   }
 

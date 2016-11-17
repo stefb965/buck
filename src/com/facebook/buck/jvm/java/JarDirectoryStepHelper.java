@@ -367,7 +367,6 @@ public class JarDirectoryStepHelper {
     filesystem.walkFileTree(
         directory,
         EnumSet.of(FileVisitOption.FOLLOW_LINKS),
-        Integer.MAX_VALUE,
         new SimpleFileVisitor<Path>() {
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)

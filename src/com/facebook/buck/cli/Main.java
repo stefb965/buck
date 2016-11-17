@@ -34,6 +34,7 @@ import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
@@ -59,7 +60,8 @@ import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
+import com.facebook.buck.io.WatchmanCursor;
+import com.facebook.buck.io.WatchmanDiagnosticEventListener;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.log.CommandThreadFactory;
@@ -82,6 +84,7 @@ import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -173,6 +176,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -306,7 +311,7 @@ public final class Main {
       throw new HumanReadableException(
           String.format(
               ("Failed to resolve project root [%s]." +
-              "Check if it exists and has the right permissions."),
+                  "Check if it exists and has the right permissions."),
               path.toAbsolutePath()),
           e);
     }
@@ -325,9 +330,11 @@ public final class Main {
     private final FileHashCache buckOutHashCache;
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
-    private final Optional<UUID> watchmanQueryUUID;
+    private final ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools;
     private final ActionGraphCache actionGraphCache;
     private final BroadcastEventListener broadcastEventListener;
+
+    private ImmutableMap<Path, WatchmanCursor> cursor;
 
     public Daemon(
         Cell cell,
@@ -335,10 +342,10 @@ public final class Main {
         Optional<WebServer> webServerToReuse) {
       this.cell = cell;
       this.hashCache = new WatchedFileHashCache(cell.getFilesystem());
-        this.buckOutHashCache =
-            DefaultFileHashCache.createBuckOutFileHashCache(
-                createProjectFilesystem(cell.getFilesystem().getRootPath()),
-                cell.getFilesystem().getBuckPaths().getBuckOut());
+      this.buckOutHashCache =
+          DefaultFileHashCache.createBuckOutFileHashCache(
+              createProjectFilesystem(cell.getFilesystem().getRootPath()),
+              cell.getFilesystem().getBuckPaths().getBuckOut());
       this.fileEventBus = new EventBus("file-change-events");
 
       this.broadcastEventListener = new BroadcastEventListener();
@@ -366,13 +373,25 @@ public final class Main {
           "project",
           "watchman_cursor",
           WatchmanWatcher.CursorType.class);
+      ImmutableMap.Builder<Path, WatchmanCursor> cursorBuilder = ImmutableMap.builder();
       if (watchmanCursorType.isPresent() &&
           watchmanCursorType.get() == WatchmanWatcher.CursorType.CLOCK_ID &&
-          cell.getWatchman().getClockId().isPresent()) {
-        watchmanQueryUUID = Optional.empty();
+          !cell.getWatchman().getClockIds().isEmpty()) {
+        for (Map.Entry<Path, String> entry : cell.getWatchman().getClockIds().entrySet()) {
+          cursorBuilder.put(entry.getKey(), new WatchmanCursor(entry.getValue()));
+        }
       } else {
-        watchmanQueryUUID = Optional.of(UUID.randomUUID());
+        LOG.debug("Falling back to named cursors: %s", cell.getWatchman().getProjectWatches());
+        for (Path cellPath : cell.getWatchman().getProjectWatches().keySet()) {
+          cursorBuilder.put(
+              cellPath,
+              new WatchmanCursor(
+                  new StringBuilder("n:buckd").append(UUID.randomUUID()).toString()));
+        }
       }
+      cursor = cursorBuilder.build();
+      LOG.debug("Using Watchman Cursor: %s", cursor);
+      persistentWorkerPools = new ConcurrentHashMap<>();
       JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(cell.getFilesystem());
     }
 
@@ -447,6 +466,10 @@ public final class Main {
       return buckOutHashCache;
     }
 
+    private ConcurrentMap<String, WorkerProcessPool> getPersistentWorkerPools() {
+      return persistentWorkerPools;
+    }
+
     private void watchClient(final NGContext context) {
       context.addClientListener(() -> {
         if (isSessionLeader && commandSemaphoreNgClient.orElse(null) == context) {
@@ -474,8 +497,7 @@ public final class Main {
         CommandEvent commandEvent,
         BuckEventBus eventBus,
         WatchmanWatcher watchmanWatcher,
-        WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
-        WatchmanDiagnosticCache watchmanDiagnosticCache)
+        WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
         throws IOException, InterruptedException {
 
       // Synchronize on parser object so that all outstanding watch events are processed
@@ -487,7 +509,6 @@ public final class Main {
         fileEventBus.post(commandEvent);
         watchmanWatcher.postEvents(
             eventBus,
-            watchmanDiagnosticCache,
             watchmanFreshInstanceAction);
       }
     }
@@ -514,13 +535,24 @@ public final class Main {
       return fileEventBus;
     }
 
-    public Optional<UUID> getWatchmanQueryUUID() {
-      return watchmanQueryUUID;
+    public ImmutableMap<Path, WatchmanCursor> getWatchmanCursor() {
+      return cursor;
     }
 
     @Override
     public void close() throws IOException {
+      shutdownPersistentWorkerPools();
       shutdownWebServer();
+    }
+
+    private void shutdownPersistentWorkerPools() {
+      for (WorkerProcessPool pool : persistentWorkerPools.values()) {
+        try {
+          pool.close();
+        } catch (Exception e) {
+          LOG.error(e);
+        }
+      }
     }
 
     private void shutdownWebServer() {
@@ -583,27 +615,16 @@ public final class Main {
 
   private WatchmanWatcher createWatchmanWatcher(
       Daemon daemon,
-      ProjectWatch projectWatch,
+      ImmutableMap<Path, ProjectWatch> projectWatch,
       EventBus fileChangeEventBus,
       ImmutableSet<PathOrGlobMatcher> ignorePaths,
       Watchman watchman) {
-    if (daemon.getWatchmanQueryUUID().isPresent()) {
-      return new WatchmanWatcher(
-          projectWatch,
-          fileChangeEventBus,
-          ignorePaths,
-          watchman,
-          daemon.getWatchmanQueryUUID().get());
-    } else if (watchman.getClockId().isPresent()) {
-      return new WatchmanWatcher(
-          projectWatch,
-          fileChangeEventBus,
-          ignorePaths,
-          watchman,
-          watchman.getClockId().get());
-    } else {
-      throw new HumanReadableException(String.format("Could not create WatchmanWatcher"));
-    }
+    return new WatchmanWatcher(
+        projectWatch,
+        fileChangeEventBus,
+        ignorePaths,
+        watchman,
+        daemon.getWatchmanCursor());
   }
 
   private static BroadcastEventListener getBroadcastEventListener(
@@ -788,13 +809,22 @@ public final class Main {
         canonicalRootPath,
         command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME));
     ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
+    DefaultCellPathResolver cellPathResolver =
+        new DefaultCellPathResolver(filesystem.getRootPath(), config);
     BuckConfig buckConfig = new BuckConfig(
         config,
         filesystem,
         architecture,
         platform,
         clientEnvironment,
-        new DefaultCellPathResolver(filesystem.getRootPath(), config));
+        cellPathResolver);
+    ImmutableSet<Path> projectWatchList = ImmutableSet.<Path>builder()
+      .add(canonicalRootPath)
+      .addAll(
+          config.getBooleanValue("project", "watch_cells", false) ?
+              cellPathResolver.getTransitivePathMapping().values() :
+              ImmutableList.of())
+      .build();
     Optional<ImmutableList<String>> allowedJavaSpecificiationVersions =
         buckConfig.getAllowedJavaSpecificationVersions();
     if (allowedJavaSpecificiationVersions.isPresent()) {
@@ -838,7 +868,6 @@ public final class Main {
     }
 
     try {
-
       if (commandSemaphoreAcquired) {
         commandSemaphoreNgClient = context;
       }
@@ -897,7 +926,7 @@ public final class Main {
                buildWatchman(
                    context,
                    parserConfig,
-                   projectRoot,
+                   projectWatchList,
                    clientEnvironment,
                    console,
                    clock)) {
@@ -915,15 +944,13 @@ public final class Main {
             processExecutor,
             androidDirectoryResolver);
 
-        WatchmanDiagnosticCache watchmanDiagnosticCache = new WatchmanDiagnosticCache();
-
         Cell rootCell = CellProvider.createForLocalBuild(
             filesystem,
             watchman,
             buckConfig,
             command.getConfigOverrides(),
-            factory,
-            watchmanDiagnosticCache).getCellByPath(filesystem.getRootPath());
+            factory)
+            .getCellByPath(filesystem.getRootPath());
 
         int exitCode;
         ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
@@ -981,6 +1008,8 @@ public final class Main {
         FileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
         Optional<WebServer> webServer = getWebServerIfDaemon(context, rootCell);
+        Optional<ConcurrentMap<String, WorkerProcessPool>> persistentWorkerPools =
+            getPersistentWorkerPoolsIfDaemon(context, rootCell);
 
         TestConfig testConfig = new TestConfig(buckConfig);
         ArtifactCacheBuckConfig cacheBuckConfig = new ArtifactCacheBuckConfig(buckConfig);
@@ -1059,7 +1088,7 @@ public final class Main {
                 buildEventBus,
                 invocationInfo);
             ProcessTracker processTracker =
-                buckConfig.isProcessTrackerEnabled() ?
+                buckConfig.isProcessTrackerEnabled() && platform != Platform.WINDOWS ?
                     new ProcessTracker(buildEventBus, invocationInfo, isDaemon) : null;
         ) {
 
@@ -1099,7 +1128,8 @@ public final class Main {
               consoleListener,
               rootCell.getKnownBuildRuleTypes(),
               clientEnvironment,
-              counterRegistry);
+              counterRegistry
+          );
 
           if (buckConfig.isPublicAnnouncementsEnabled()) {
             PublicAnnouncementManager announcementManager = new PublicAnnouncementManager(
@@ -1126,7 +1156,8 @@ public final class Main {
                   vcBuckConfig,
                   buckConfig.getEnvironment());
 
-          if (!command.isReadOnly() && vcBuckConfig.shouldGenerateStatistics()) {
+          if (command.isSourceControlStatsGatheringEnabled() ||
+              vcBuckConfig.shouldGenerateStatistics()) {
             vcStatsGenerator = new VersionControlStatsGenerator(
                 diskIoExecutorService,
                 vcsFactory,
@@ -1154,7 +1185,7 @@ public final class Main {
               Daemon daemon = getDaemon(rootCell, objectMapper);
               WatchmanWatcher watchmanWatcher = createWatchmanWatcher(
                   daemon,
-                  watchman.getProjectWatch(),
+                  watchman.getProjectWatches(),
                   daemon.getFileEventBus(),
                   ImmutableSet.<PathOrGlobMatcher>builder()
                       .addAll(filesystem.getIgnorePaths())
@@ -1167,8 +1198,7 @@ public final class Main {
                   startedEvent,
                   buildEventBus,
                   watchmanWatcher,
-                  watchmanFreshInstanceAction,
-                  watchmanDiagnosticCache);
+                  watchmanFreshInstanceAction);
               actionGraphCache = daemon.getActionGraphCache();
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
@@ -1236,10 +1266,13 @@ public final class Main {
                   .setParser(parser)
                   .setPlatform(platform)
                   .setEnvironment(clientEnvironment)
-                  .setJavaPackageFinder(rootCell.getBuckConfig().createDefaultJavaPackageFinder())
+                  .setJavaPackageFinder(
+                      rootCell.getBuckConfig().getView(JavaBuckConfig.class)
+                          .createDefaultJavaPackageFinder())
                   .setObjectMapper(objectMapper)
                   .setClock(clock)
                   .setProcessManager(processManager)
+                  .setPersistentWorkerPools(persistentWorkerPools)
                   .setWebServer(webServer)
                   .setBuckConfig(buckConfig)
                   .setFileHashCache(fileHashCache)
@@ -1349,24 +1382,24 @@ public final class Main {
   private static final Watchman buildWatchman(
       Optional<NGContext> context,
       ParserConfig parserConfig,
-      Path projectRoot,
+      ImmutableSet<Path> projectWatchList,
       ImmutableMap<String, String> clientEnvironment,
       Console console,
       Clock clock) throws InterruptedException {
     Watchman watchman;
     if (context.isPresent() || parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN) {
       watchman = Watchman.build(
-          projectRoot,
+          projectWatchList,
           clientEnvironment,
           console,
           clock,
           parserConfig.getWatchmanQueryTimeoutMs());
 
       LOG.debug(
-          "Watchman capabilities: %s Project watch: %s Glob handler config: %s " +
+          "Watchman capabilities: %s Project watches: %s Glob handler config: %s " +
           "Query timeout ms config: %s",
           watchman.getCapabilities(),
-          watchman.getProjectWatch(),
+          watchman.getProjectWatches(),
           parserConfig.getGlobHandler(),
           parserConfig.getWatchmanQueryTimeoutMs());
 
@@ -1534,8 +1567,7 @@ public final class Main {
       CommandEvent commandEvent,
       BuckEventBus eventBus,
       WatchmanWatcher watchmanWatcher,
-      WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction,
-      WatchmanDiagnosticCache watchmanDiagnosticCache)
+      WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
       throws IOException, InterruptedException {
     // Wire up daemon to new client and get cached Parser.
     Daemon daemonForParser = getDaemon(cell, objectMapper);
@@ -1544,8 +1576,7 @@ public final class Main {
         commandEvent,
         eventBus,
         watchmanWatcher,
-        watchmanFreshInstanceAction,
-        watchmanDiagnosticCache);
+        watchmanFreshInstanceAction);
     return daemon.getParser();
   }
 
@@ -1570,6 +1601,17 @@ public final class Main {
     return Optional.empty();
   }
 
+  private Optional<ConcurrentMap<String, WorkerProcessPool>> getPersistentWorkerPoolsIfDaemon(
+      Optional<NGContext> context,
+      Cell cell)
+      throws IOException {
+    if (context.isPresent()) {
+      Daemon daemon = getDaemon(cell, objectMapper);
+      return Optional.of(daemon.getPersistentWorkerPools());
+    }
+    return Optional.empty();
+  }
+
   private void loadListenersFromBuckConfig(
       ImmutableList.Builder<BuckEventListener> eventListeners,
       ProjectFilesystem projectFilesystem,
@@ -1583,7 +1625,7 @@ public final class Main {
     try {
       int i = 0;
       for (String path : paths) {
-        String urlString = "file://" + projectFilesystem.getAbsolutifier().apply(Paths.get(path));
+        String urlString = "file://" + projectFilesystem.resolve(Paths.get(path));
         urlsArray[i] = new URL(urlString);
         i++;
       }
@@ -1635,7 +1677,8 @@ public final class Main {
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
       ImmutableMap<String, String> environment,
-      CounterRegistry counterRegistry) {
+      CounterRegistry counterRegistry
+  ) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
             .add(new JavaUtilsLoggingBuildListener())
@@ -1684,7 +1727,7 @@ public final class Main {
       }
     }
 
-    JavaBuckConfig javaBuckConfig = new JavaBuckConfig(config);
+    JavaBuckConfig javaBuckConfig = config.getView(JavaBuckConfig.class);
     if (!javaBuckConfig.getSkipCheckingMissingDeps()) {
       JavacOptions javacOptions = javaBuckConfig.getDefaultJavacOptions();
       eventListenersBuilder.add(MissingSymbolsHandler.createListener(
@@ -1699,12 +1742,11 @@ public final class Main {
 
     eventListenersBuilder.add(new LoadBalancerEventsListener(counterRegistry));
     eventListenersBuilder.add(new CacheRateStatsListener(buckEventBus));
+    eventListenersBuilder.add(new WatchmanDiagnosticEventListener(buckEventBus));
 
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
+    eventListeners.forEach(buckEventBus::register);
 
-    for (BuckEventListener eventListener : eventListeners) {
-      buckEventBus.register(eventListener);
-    }
 
     return eventListeners;
   }

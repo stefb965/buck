@@ -4,7 +4,6 @@
       "//src/com/facebook/buck/android:utils",
       "//src/com/facebook/buck/artifact_cache:artifact_cache",
       "//src/com/facebook/buck/cli:config",
-      "//src/com/facebook/buck/cli:events",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/cxx:platform",
       "//src/com/facebook/buck/event:event",
@@ -15,6 +14,7 @@
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/jvm/core:packagefinder",
       "//src/com/facebook/buck/jvm/java:rules",
+      "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/log:log",
       "//src/com/facebook/buck/model:build_id",
       "//src/com/facebook/buck/model:model",
@@ -57,7 +57,6 @@
       "//test/com/facebook/buck/cxx:testutil",
       "//test/com/facebook/buck/event:testutil",
       "//test/com/facebook/buck/io:testutil",
-      "//test/com/facebook/buck/jvm/java:fakepackagefinder",
       "//test/com/facebook/buck/jvm/java:testutil",
       "//test/com/facebook/buck/model:testutil",
       "//test/com/facebook/buck/rules:testutil",
@@ -83,6 +82,8 @@
   },
   "testutil" : {
     "deps" : [
+      "//src/com/facebook/buck/android:utils",
+      "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/util:object_mapper",
       "//test/com/facebook/buck/android:utils",
@@ -93,16 +94,13 @@
       "//test/com/facebook/buck/testutil:testutil",
       "//third-party/java/cglib:cglib",
       "//third-party/java/jackson:jackson-databind",
-      "//third-party/java/jsr:jsr305",
       "//third-party/java/junit:junit"
     ],
     "exported_deps" : [
-      "//src/com/facebook/buck/android:utils",
       "//src/com/facebook/buck/cli:config",
       "//src/com/facebook/buck/config:base-config",
       "//src/com/facebook/buck/io:io",
       "//src/com/facebook/buck/io:watchman",
-      "//src/com/facebook/buck/json:json",
       "//src/com/facebook/buck/model:model",
       "//src/com/facebook/buck/parser:rule_pattern",
       "//src/com/facebook/buck/rules:build_rule",
@@ -119,7 +117,8 @@
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/sha1:sha1",
       "//test/com/facebook/buck/util:testutil",
-      "//third-party/java/guava:guava"
+      "//third-party/java/guava:guava",
+      "//third-party/java/jsr:jsr305"
     ]
   }
 }

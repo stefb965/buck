@@ -18,7 +18,7 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
-import com.facebook.buck.cli.CommandEvent;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
@@ -166,11 +166,6 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
     this.jsonGenerator.writeStartArray();
     addProcessMetadataEvent();
-  }
-
-  @VisibleForTesting
-  Path getTracePath() {
-    return tracePath;
   }
 
   private void addProcessMetadataEvent() {

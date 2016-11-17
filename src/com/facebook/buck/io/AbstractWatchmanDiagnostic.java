@@ -20,7 +20,7 @@ import com.facebook.buck.util.immutables.BuckStyleTuple;
 
 import org.immutables.value.Value;
 
-@Value.Immutable
+@Value.Immutable(builder = false, copy = false)
 @BuckStyleTuple
 interface AbstractWatchmanDiagnostic {
   enum Level {

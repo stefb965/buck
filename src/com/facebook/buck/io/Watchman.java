@@ -29,7 +29,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -81,22 +80,20 @@ public class Watchman implements AutoCloseable {
 
   private static final Path WATCHMAN = Paths.get("watchman");
   public static final Watchman NULL_WATCHMAN = new Watchman(
-      ProjectWatch.of("", Optional.<String>empty()),
+      ImmutableMap.of(),
       ImmutableSet.of(),
+      ImmutableMap.of(),
       Optional.empty(),
-      Optional.empty(),
-      Optional.empty(),
-      0);
+      Optional.empty());
 
-  private final ProjectWatch projectWatch;
+  private final ImmutableMap<Path, ProjectWatch> projectWatches;
   private final ImmutableSet<Capability> capabilities;
   private final Optional<Path> socketPath;
   private final Optional<WatchmanClient> watchmanClient;
-  private final long commandTimeoutMillis;
-  private final Optional<String> initialClockId;
+  private final ImmutableMap<Path, String> clockIds;
 
   public static Watchman build(
-      Path rootPath,
+      ImmutableSet<Path> projectWatchList,
       ImmutableMap<String, String> env,
       Console console,
       Clock clock,
@@ -107,7 +104,7 @@ public class Watchman implements AutoCloseable {
         localSocketWatchmanConnector(
             console,
             clock),
-        rootPath,
+        projectWatchList,
         env,
         new ExecutableFinder(),
         console,
@@ -120,27 +117,26 @@ public class Watchman implements AutoCloseable {
   static Watchman build(
       ListeningProcessExecutor executor,
       Function<Path, Optional<WatchmanClient>> watchmanConnector,
-      Path rootPath,
+      ImmutableSet<Path> projectWatchList,
       ImmutableMap<String, String> env,
       ExecutableFinder exeFinder,
       Console console,
       Clock clock,
       Optional<Long> commandTimeoutMillis) throws InterruptedException {
-    LOG.info("Creating for: " + rootPath);
+    LOG.info("Creating for: " + projectWatchList);
     Optional<WatchmanClient> watchmanClient = Optional.empty();
     try {
       Path watchmanPath = exeFinder.getExecutable(WATCHMAN, env).toAbsolutePath();
-      Optional<? extends Map<String, ? extends Object>> result;
+      Optional<? extends Map<String, ?>> result;
 
       long timeoutMillis = commandTimeoutMillis.orElse(DEFAULT_COMMAND_TIMEOUT_MILLIS);
-      long remainingTimeNanos = TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
-      long startTimeNanos = clock.nanoTime();
+      long endTimeNanos = clock.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
       result = execute(
           executor,
           console,
           clock,
           timeoutMillis,
-          remainingTimeNanos,
+          TimeUnit.MILLISECONDS.toNanos(timeoutMillis),
           watchmanPath,
           "get-sockname");
 
@@ -163,10 +159,8 @@ public class Watchman implements AutoCloseable {
       LOG.debug("Connected to Watchman");
 
       long versionQueryStartTimeNanos = clock.nanoTime();
-      remainingTimeNanos -= versionQueryStartTimeNanos - startTimeNanos;
-
       result = watchmanClient.get().queryWithTimeout(
-          remainingTimeNanos,
+          endTimeNanos - versionQueryStartTimeNanos,
           "version",
           ImmutableMap.of(
               "required",
@@ -194,89 +188,38 @@ public class Watchman implements AutoCloseable {
       ImmutableSet<Capability> capabilities = capabilitiesBuilder.build();
       LOG.debug("Got Watchman capabilities: %s", capabilities);
 
-      Path absoluteRootPath = rootPath.toAbsolutePath();
-      LOG.info("Adding watchman root: %s", absoluteRootPath);
+      ImmutableMap.Builder<Path, ProjectWatch> projectWatchesBuilder = ImmutableMap.builder();
+      ImmutableMap.Builder<Path, String> clockIdsBuilder = ImmutableMap.builder();
+      for (Path rootPath : projectWatchList) {
+        Optional<ProjectWatch> projectWatch = queryWatchProject(
+            watchmanClient.get(),
+            rootPath,
+            clock,
+            endTimeNanos - clock.nanoTime());
+        if (!projectWatch.isPresent()) {
+          watchmanClient.get().close();
+          return NULL_WATCHMAN;
+        }
+        projectWatchesBuilder.put(rootPath, projectWatch.get());
 
-      long projectWatchTimeNanos = clock.nanoTime();
-      remainingTimeNanos -= (projectWatchTimeNanos - versionQueryStartTimeNanos);
-      result = watchmanClient.get().queryWithTimeout(
-          remainingTimeNanos,
-          "watch-project",
-          absoluteRootPath.toString());
-
-      // TODO(mzlee): There is a bug in watchman (that will be fixed
-      // in a later watchman release) where watch-project returns
-      // before the crawl is finished which causes the next
-      // interaction to block. Calling watch-project a second time
-      // properly attributes where we are spending time.
-      long secondProjectWatchTimeNanos = clock.nanoTime();
-      remainingTimeNanos -= (secondProjectWatchTimeNanos - projectWatchTimeNanos);
-      result = watchmanClient.get().queryWithTimeout(
-          remainingTimeNanos,
-          "watch-project",
-          absoluteRootPath.toString());
-      LOG.info(
-          "Took %d ms to add root %s",
-          TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - projectWatchTimeNanos),
-          absoluteRootPath);
-
-      if (!result.isPresent()) {
-        watchmanClient.get().close();
-        return NULL_WATCHMAN;
-      }
-
-      Map<String, ? extends Object> map = result.get();
-
-      if (map.containsKey("error")) {
-        LOG.warn("Error in watchman output: %s", map.get("error"));
-        watchmanClient.get().close();
-        return NULL_WATCHMAN;
-      }
-
-      if (map.containsKey("warning")) {
-        LOG.warn("Warning in watchman output: %s", map.get("warning"));
-        // Warnings are not fatal. Don't panic.
-      }
-
-      if (!map.containsKey("watch")) {
-        watchmanClient.get().close();
-        return NULL_WATCHMAN;
-      }
-
-      Optional<String> initialClock = Optional.empty();
-      String watchRoot = (String) map.get("watch");
-      Optional<String> watchPrefix = Optional.ofNullable((String) map.get("relative_path"));
-
-      if (capabilities.contains(Capability.CLOCK_SYNC_TIMEOUT)) {
-        long clockStartTimeNanos = clock.nanoTime();
-        remainingTimeNanos -= (clockStartTimeNanos - secondProjectWatchTimeNanos);
-        result = watchmanClient.get().queryWithTimeout(
-            remainingTimeNanos,
-            ImmutableList.of(
-                "clock",
-                Optional.ofNullable((String) map.get("watch")).orElse(absoluteRootPath.toString()),
-                ImmutableMap.of("sync_timeout", WATCHMAN_CLOCK_SYNC_TIMEOUT)).toArray());
-        if (result.isPresent()) {
-          Map<String, ? extends Object> clockResult = result.get();
-          initialClock = Optional.ofNullable((String) clockResult.get("clock"));
-          LOG.info(
-              "Took %d ms to query for initial clock id %s",
-              TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - clockStartTimeNanos),
-              initialClock);
-        } else {
-          LOG.warn(
-              "Took %d ms but could not get an initial clock id. Falling back to a named cursor",
-              TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - clockStartTimeNanos));
+        if (capabilities.contains(Capability.CLOCK_SYNC_TIMEOUT)) {
+          Optional<String> clockId = queryClock(
+              watchmanClient.get(),
+              projectWatch.get().getWatchRoot(),
+              clock,
+              endTimeNanos - clock.nanoTime());
+          if (clockId.isPresent()) {
+            clockIdsBuilder.put(rootPath, clockId.get());
+          }
         }
       }
 
       return new Watchman(
-          ProjectWatch.of(watchRoot, watchPrefix),
+          projectWatchesBuilder.build(),
           capabilities,
-          initialClock,
+          clockIdsBuilder.build(),
           Optional.of(socketPath),
-          watchmanClient,
-          timeoutMillis);
+          watchmanClient);
     } catch (ClassCastException | HumanReadableException | IOException e) {
       LOG.warn(e, "Unable to determine the version of watchman. Going without.");
       if (watchmanClient.isPresent()) {
@@ -292,7 +235,7 @@ public class Watchman implements AutoCloseable {
 
   @SuppressWarnings("unchecked")
   private static boolean extractCapabilities(
-      Map<String, ? extends Object> versionResponse,
+      Map<String, ?> versionResponse,
       ImmutableSet.Builder<Capability> capabilitiesBuilder) {
     if (versionResponse.containsKey("error")) {
       LOG.warn("Error in watchman output: %s", versionResponse.get("error"));
@@ -324,6 +267,112 @@ public class Watchman implements AutoCloseable {
       }
     }
     return true;
+  }
+
+  /**
+   * Requests watchman watch a project directory
+   * Executes the underlying watchman query: {@code watchman watch-project <rootPath>}
+   *
+   * @param watchmanClient to use for the query
+   * @param watchRoot path to the root of the watch-project
+   * @param clock used to compute timeouts and statistics
+   * @param timeoutNanos for the watchman query
+   * @return If successful, a {@link ProjectWatch} instance containing
+   *         the root of the watchman watch, and relative path from
+   *         the root to {@code rootPath}
+   */
+  private static Optional<ProjectWatch> queryWatchProject(
+      WatchmanClient watchmanClient,
+      Path rootPath,
+      Clock clock,
+      long timeoutNanos) throws IOException, InterruptedException {
+    Path absoluteRootPath = rootPath.toAbsolutePath();
+    LOG.info("Adding watchman root: %s", absoluteRootPath);
+
+    long projectWatchTimeNanos = clock.nanoTime();
+    watchmanClient.queryWithTimeout(
+        timeoutNanos,
+        "watch-project",
+        absoluteRootPath.toString());
+
+    // TODO(mzlee): There is a bug in watchman (that will be fixed
+    // in a later watchman release) where watch-project returns
+    // before the crawl is finished which causes the next
+    // interaction to block. Calling watch-project a second time
+    // properly attributes where we are spending time.
+    Optional<? extends Map<String, ?>> result = watchmanClient.queryWithTimeout(
+        timeoutNanos - (clock.nanoTime() - projectWatchTimeNanos),
+        "watch-project",
+        absoluteRootPath.toString());
+    LOG.info(
+        "Took %d ms to add root %s",
+        TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - projectWatchTimeNanos),
+        absoluteRootPath);
+
+    if (!result.isPresent()) {
+      return Optional.empty();
+    }
+
+    Map<String, ?> map = result.get();
+    if (map.containsKey("error")) {
+      LOG.warn("Error in watchman output: %s", map.get("error"));
+      return Optional.empty();
+    }
+
+    if (map.containsKey("warning")) {
+      LOG.warn("Warning in watchman output: %s", map.get("warning"));
+      // Warnings are not fatal. Don't panic.
+    }
+
+    if (!map.containsKey("watch")) {
+      return Optional.empty();
+    }
+
+    String watchRoot = (String) map.get("watch");
+    Optional<String> watchPrefix = Optional.ofNullable((String) map.get("relative_path"));
+    return Optional.of(ProjectWatch.of(watchRoot, watchPrefix));
+  }
+
+  /**
+   * Queries for the watchman clock-id
+   * Executes the underlying watchman query: {@code watchman clock (sync_timeout: 100)}
+   *
+   * @param watchmanClient to use for the query
+   * @param watchRoot path to the root of the watch-project
+   * @param clock used to compute timeouts and statistics
+   * @param timeoutNanos for the watchman query
+   * @return If successful, a {@link String} containing the watchman clock id
+   */
+  private static Optional<String> queryClock(
+      WatchmanClient watchmanClient,
+      String watchRoot,
+      Clock clock,
+      long timeoutNanos) throws IOException, InterruptedException {
+    Optional<String> clockId = Optional.empty();
+    long clockStartTimeNanos = clock.nanoTime();
+    Optional<? extends Map<String, ?>> result = watchmanClient.queryWithTimeout(
+        timeoutNanos,
+        "clock",
+        watchRoot,
+        ImmutableMap.of("sync_timeout", WATCHMAN_CLOCK_SYNC_TIMEOUT));
+    if (result.isPresent()) {
+      Map<String, ?> clockResult = result.get();
+      clockId = Optional.ofNullable((String) clockResult.get("clock"));
+    }
+    if (clockId.isPresent()) {
+      Map<String, ?> map = result.get();
+      clockId = Optional.ofNullable((String) map.get("clock"));
+      LOG.info(
+          "Took %d ms to query for initial clock id %s",
+          TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - clockStartTimeNanos),
+          clockId);
+    } else {
+      LOG.warn(
+          "Took %d ms but could not get an initial clock id. Falling back to a named cursor",
+          TimeUnit.NANOSECONDS.toMillis(clock.nanoTime() - clockStartTimeNanos));
+    }
+
+    return clockId;
   }
 
   @SuppressWarnings("unchecked")
@@ -426,30 +475,28 @@ public class Watchman implements AutoCloseable {
   // the WatchmanClient separately.
   @VisibleForTesting
   public Watchman(
-      ProjectWatch projectWatch,
+      ImmutableMap<Path, ProjectWatch> projectWatches,
       ImmutableSet<Capability> capabilities,
-      Optional<String> initialClockId,
+      ImmutableMap<Path, String> clockIds,
       Optional<Path> socketPath,
-      Optional<WatchmanClient> watchmanClient,
-      long commandTimeoutMillis) {
-    this.projectWatch = projectWatch;
+      Optional<WatchmanClient> watchmanClient) {
+    this.projectWatches = projectWatches;
     this.capabilities = capabilities;
-    this.initialClockId = initialClockId;
+    this.clockIds = clockIds;
     this.socketPath = socketPath;
     this.watchmanClient = watchmanClient;
-    this.commandTimeoutMillis = commandTimeoutMillis;
   }
 
-  public ProjectWatch getProjectWatch() {
-    return projectWatch;
+  public ImmutableMap<Path, ProjectWatch> getProjectWatches() {
+    return projectWatches;
   }
 
   public ImmutableSet<Capability> getCapabilities() {
     return capabilities;
   }
 
-  public Optional<String> getClockId() {
-    return initialClockId;
+  public ImmutableMap<Path, String> getClockIds() {
+    return clockIds;
   }
 
   public boolean hasWildmatchGlob() {
@@ -462,10 +509,6 @@ public class Watchman implements AutoCloseable {
 
   public Optional<WatchmanClient> getWatchmanClient() {
     return watchmanClient;
-  }
-
-  public long getCommandTimeoutMillis() {
-    return commandTimeoutMillis;
   }
 
   @Override

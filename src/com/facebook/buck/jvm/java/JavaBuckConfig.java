@@ -17,12 +17,14 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -32,13 +34,23 @@ import java.util.Optional;
 /**
  * A java-specific "view" of BuckConfig.
  */
-public class JavaBuckConfig {
+public class JavaBuckConfig implements ConfigView<BuckConfig> {
   // Default combined source and target level.
   public static final String TARGETED_JAVA_VERSION = "7";
   private final BuckConfig delegate;
 
-  public JavaBuckConfig(BuckConfig delegate) {
+  // Interface for reflection-based ConfigView to instantiate this class.
+  public static JavaBuckConfig of(BuckConfig delegate) {
+    return new JavaBuckConfig(delegate);
+  }
+
+  private JavaBuckConfig(BuckConfig delegate) {
     this.delegate = delegate;
+  }
+
+  @Override
+  public BuckConfig getDelegate() {
+    return delegate;
   }
 
   public JavaOptions getDefaultJavaOptions() {
@@ -46,6 +58,17 @@ public class JavaBuckConfig {
         .builder()
         .setJavaPath(getPathToExecutable("java"))
         .build();
+  }
+
+  public JavaOptions getDefaultJavaOptionsForTests() {
+    Optional<Path> javaTestPath = getPathToExecutable("java_for_tests");
+    if (javaTestPath.isPresent()) {
+      return JavaOptions
+          .builder()
+          .setJavaPath(javaTestPath)
+          .build();
+    }
+    return getDefaultJavaOptions();
   }
 
   public JavacOptions getDefaultJavacOptions() {
@@ -88,6 +111,14 @@ public class JavaBuckConfig {
         .setSafeAnnotationProcessors(safeAnnotationProcessors)
         .setTrackClassUsageNotDisabled(trackClassUsage)
         .build();
+  }
+
+  public ImmutableSet<String> getSrcRoots() {
+    return ImmutableSet.copyOf(delegate.getListWithoutComments("java", "src_roots"));
+  }
+
+  public DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
+    return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(getSrcRoots());
   }
 
   @VisibleForTesting

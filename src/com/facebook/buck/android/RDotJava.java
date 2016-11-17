@@ -18,6 +18,8 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
+import com.facebook.buck.jvm.java.BaseCompileToJarStepFactory;
+import com.facebook.buck.jvm.java.ClasspathChecker;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.NoOpClassUsageFileWriter;
@@ -42,24 +44,6 @@ public class RDotJava {
   /** Utility class: do not instantiate. */
   private RDotJava() {}
 
-  static JavacStep createJavacStepForUberRDotJavaFiles(
-      ImmutableSortedSet<Path> javaSourceFilePaths,
-      Path pathToSrcsList,
-      Path outputDirectory,
-      JavacOptions javacOptions,
-      BuildTarget buildTarget,
-      SourcePathResolver resolver,
-      ProjectFilesystem filesystem) {
-    return createJavacStepForDummyRDotJavaFiles(
-        javaSourceFilePaths,
-        pathToSrcsList,
-        outputDirectory,
-        javacOptions,
-        buildTarget,
-        resolver,
-        filesystem);
-  }
-
   static JavacStep createJavacStepForDummyRDotJavaFiles(
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
@@ -72,7 +56,7 @@ public class RDotJava {
     return new JavacStep(
         outputDirectory,
         NoOpClassUsageFileWriter.instance(),
-        Optional.empty(),
+        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
         Optional.empty(),
         javaSourceFilePaths,
         pathToSrcsList,
@@ -84,6 +68,7 @@ public class RDotJava {
         buildTarget,
         Optional.empty(),
         resolver,
-        filesystem);
+        filesystem,
+        new ClasspathChecker());
   }
 }

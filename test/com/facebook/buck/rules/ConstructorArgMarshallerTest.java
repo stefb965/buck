@@ -53,6 +53,7 @@ import java.util.Set;
 @SuppressWarnings("unused") // Many unused fields in sample DTO objects.
 public class ConstructorArgMarshallerTest {
 
+  public static final BuildTarget TARGET = BuildTargetFactory.newInstance("//example/path:three");
   private Path basePath;
   private ConstructorArgMarshaller marshaller;
   private BuildRuleResolver ruleResolver;
@@ -78,7 +79,7 @@ public class ConstructorArgMarshallerTest {
       marshaller.populate(
           createCellRoots(filesystem),
           filesystem,
-          buildRuleFactoryParams(),
+          TARGET,
           dto,
           ImmutableSet.builder(),
           ImmutableSet.builder(),
@@ -95,7 +96,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -111,7 +112,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -127,7 +128,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -147,7 +148,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -163,7 +164,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -186,14 +187,13 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
         ImmutableMap.<String, Object>of(
             "filePath", "cheese.txt",
-            "targetPath", ":peas"
-        ));
+            "targetPath", ":peas"));
 
     assertEquals(
         new PathSourcePath(projectFilesystem, Paths.get("example/path/cheese.txt")),
@@ -214,7 +214,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -230,7 +230,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -248,7 +248,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -275,7 +275,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         declaredDeps,
         ImmutableSet.builder(),
@@ -298,7 +298,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         declaredDeps,
         ImmutableSet.builder(),
@@ -317,7 +317,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -334,7 +334,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -348,7 +348,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -362,7 +362,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -376,7 +376,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -396,7 +396,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         new Dto(),
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -415,7 +415,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -446,7 +446,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -465,7 +465,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -502,7 +502,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -530,7 +530,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -540,8 +540,6 @@ public class ConstructorArgMarshallerTest {
     assertEquals(Optional.empty(), dto.defaultString);
     assertEquals(Optional.empty(), dto.noSourcePath);
     assertEquals(Optional.empty(), dto.defaultSourcePath);
-    assertEquals(0, dto.primitiveNum);
-    assertEquals(Integer.valueOf(0), dto.wrapperObjectNum);
   }
 
   @Test
@@ -550,18 +548,20 @@ public class ConstructorArgMarshallerTest {
     // This is not an ImmutableMap so we can test null values.
     Map<String, Object> args = Maps.newHashMap();
     args.put("something", null);
+    args.put("things", null);
     args.put("another", null);
     DtoWithDefaultValues dto = new DtoWithDefaultValues();
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
         args);
 
     assertThat(dto.something, is("foo"));
+    assertThat(dto.things, is(ImmutableList.of("bar")));
     assertThat(dto.another, is(365));
     assertThat(dto.beGood, is(true));
   }
@@ -572,19 +572,21 @@ public class ConstructorArgMarshallerTest {
     // This is not an ImmutableMap so we can test null values.
     Map<String, Object> args = Maps.newHashMap();
     args.put("something", "bar");
+    args.put("things", ImmutableList.of("qux", "quz"));
     args.put("another", 1234L);
     args.put("beGood", false);
     DtoWithDefaultValues dto = new DtoWithDefaultValues();
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
         args);
 
     assertThat(dto.something, is("bar"));
+    assertThat(dto.things, is(ImmutableList.of("qux", "quz")));
     assertThat(dto.another, is(1234));
     assertThat(dto.beGood, is(false));
   }
@@ -602,7 +604,7 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.builder(),
         ImmutableSet.builder(),
@@ -628,18 +630,12 @@ public class ConstructorArgMarshallerTest {
     marshaller.populate(
         createCellRoots(filesystem),
         filesystem,
-        buildRuleFactoryParams(),
+        TARGET,
         dto,
         ImmutableSet.<BuildTarget>builder(),
         ImmutableSet.<VisibilityPattern>builder(),
         ImmutableMap.<String, Object>of(
-            "visibility", ImmutableList.of(":marmosets")
-        ));
-  }
-
-  public BuildRuleFactoryParams buildRuleFactoryParams() {
-    BuildTarget target = BuildTargetFactory.newInstance("//example/path:three");
-    return new BuildRuleFactoryParams(new FakeProjectFilesystem(), target);
+            "visibility", ImmutableList.of(":marmosets")));
   }
 
   public static class DtoWithString {
@@ -740,15 +736,11 @@ public class ConstructorArgMarshallerTest {
 
     public Optional<SourcePath> noSourcePath;
     public Optional<SourcePath> defaultSourcePath;
-
-    public int primitiveNum;
-    public Integer wrapperObjectNum;
-    public boolean primitiveBoolean;
-    public Boolean wrapperObjectBoolean;
   }
 
   public static class DtoWithDefaultValues {
     public String something = "foo";
+    public List<String> things = ImmutableList.of("bar");
     public int another = 365;
     public Boolean beGood = true;
   }

@@ -25,9 +25,7 @@ import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -93,10 +91,6 @@ class SwiftCompile
 
   private final Iterable<CxxPreprocessorInput> cxxPreprocessorInputs;
 
-  // Prepend "-I" before the input with no space (this is required by swift).
-  private static final Function<String, String> PREPEND_INCLUDE_FLAG =
-      INCLUDE_FLAG::concat;
-
   SwiftCompile(
       CxxPlatform cxxPlatform,
       SwiftBuckConfig swiftBuckConfig,
@@ -140,26 +134,16 @@ class SwiftCompile
       compilerCommand.add(
           "-import-objc-header",
           getResolver().getRelativePath(bridgingHeader.get()).toString());
-
-      // bridging header needs exported headers for imports
-      for (HeaderVisibility headerVisibility : HeaderVisibility.values()) {
-        Path headerPath = CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
-            getProjectFilesystem(),
-            BuildTarget.builder(getBuildTarget().getUnflavoredBuildTarget()).build(),
-            cxxPlatform.getFlavor(),
-            headerVisibility);
-
-        compilerCommand.add(INCLUDE_FLAG, headerPath.toString());
-      }
     }
 
     final Function<FrameworkPath, Path> frameworkPathToSearchPath =
         CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver());
 
     compilerCommand.addAll(
-        FluentIterable.from(frameworks)
-        .transform(frameworkPathToSearchPath)
-        .transformAndConcat(searchPath -> ImmutableSet.of("-F", searchPath.toString())));
+        frameworks.stream()
+            .map(frameworkPathToSearchPath::apply)
+            .flatMap(searchPath -> ImmutableSet.of("-F", searchPath.toString()).stream())
+            .iterator());
 
     compilerCommand.addAll(
         MoreIterables.zipAndConcat(Iterables.cycle("-Xcc"),
@@ -251,10 +235,10 @@ class SwiftCompile
 
     // Apply the header maps first, so that headers that matching there avoid falling back to
     // stat'ing files in the normal include roots.
-    args.addAll(Iterables.transform(headerMaps, PREPEND_INCLUDE_FLAG));
+    args.addAll(Iterables.transform(headerMaps, INCLUDE_FLAG::concat));
 
     // Apply the regular includes last.
-    args.addAll(Iterables.transform(roots, PREPEND_INCLUDE_FLAG));
+    args.addAll(Iterables.transform(roots, INCLUDE_FLAG::concat));
 
     return args.build();
   }

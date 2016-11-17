@@ -55,19 +55,17 @@ public class PackagedResource implements Supplier<Path> {
       String pathRelativeToClass,
       Optional<String> destFileName) {
     this.filesystem = filesystem;
-
     this.relativeTo = relativeTo;
+
     // We could magically detect the class we're relative to by examining the stacktrace but that
     // would be incredibly fragile. So we won't.
-
     this.name = pathRelativeToClass;
 
     this.filename = destFileName.map(Paths::get)
         .orElse(Paths.get(pathRelativeToClass).getFileName());
     this.extension = com.google.common.io.Files.getFileExtension(pathRelativeToClass);
 
-    this.supplier = Suppliers.memoize(
-        this::unpack);
+    this.supplier = Suppliers.memoize(this::unpack);
   }
 
   @Override

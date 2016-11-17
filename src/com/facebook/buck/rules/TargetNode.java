@@ -16,10 +16,13 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.versions.Version;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 
@@ -37,7 +40,8 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
   private final TargetNodeFactory factory;
 
   private final HashCode rawInputsHashCode;
-  private final BuildRuleFactoryParams ruleFactoryParams;
+  private final ProjectFilesystem filesystem;
+  private final BuildTarget buildTarget;
   private final CellPathResolver cellNames;
 
   private final Description<T> description;
@@ -48,27 +52,33 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
   private final ImmutableSet<BuildTarget> extraDeps;
   private final ImmutableSet<VisibilityPattern> visibilityPatterns;
 
+  private final Optional<ImmutableMap<BuildTarget, Version>> selectedVersions;
+
   TargetNode(
       TargetNodeFactory factory,
       HashCode rawInputsHashCode,
       Description<T> description,
       T constructorArg,
-      BuildRuleFactoryParams params,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<BuildTarget> extraDeps,
       ImmutableSet<VisibilityPattern> visibilityPatterns,
       ImmutableSet<Path> paths,
-      CellPathResolver cellNames) {
+      CellPathResolver cellNames,
+      Optional<ImmutableMap<BuildTarget, Version>> selectedVersions) {
     this.factory = factory;
     this.rawInputsHashCode = rawInputsHashCode;
     this.description = description;
     this.constructorArg = constructorArg;
-    this.ruleFactoryParams = params;
+    this.filesystem = filesystem;
+    this.buildTarget = buildTarget;
     this.cellNames = cellNames;
     this.declaredDeps = declaredDeps;
     this.extraDeps = extraDeps;
     this.inputs = paths;
     this.visibilityPatterns = visibilityPatterns;
+    this.selectedVersions = selectedVersions;
   }
 
   /**
@@ -90,9 +100,13 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
     return constructorArg;
   }
 
+  public ProjectFilesystem getFilesystem() {
+    return filesystem;
+  }
+
   @Override
   public BuildTarget getBuildTarget() {
-    return ruleFactoryParams.target;
+    return buildTarget;
   }
 
   public ImmutableSet<Path> getInputs() {
@@ -112,10 +126,6 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
     builder.addAll(getDeclaredDeps());
     builder.addAll(getExtraDeps());
     return builder.build();
-  }
-
-  public BuildRuleFactoryParams getRuleFactoryParams() {
-    return ruleFactoryParams;
   }
 
   /**
@@ -190,22 +200,25 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
     return factory.copyNodeWithFlavors(this, flavors);
   }
 
-  public TargetNode<T> withTargetConstructorArgAndDeps(
+  public TargetNode<T> withTargetConstructorArgDepsAndSelectedVerisons(
       BuildTarget target,
       T constructorArg,
       ImmutableSet<BuildTarget> declaredDeps,
-      ImmutableSet<BuildTarget> extraDeps) {
+      ImmutableSet<BuildTarget> extraDeps,
+      Optional<ImmutableMap<BuildTarget, Version>> selectedVerisons) {
     return new TargetNode<>(
         factory,
         getRawInputsHashCode(),
         getDescription(),
         constructorArg,
-        getRuleFactoryParams().withTarget(target),
+        filesystem,
+        target,
         declaredDeps,
         extraDeps,
         getVisibilityPatterns(),
         getInputs(),
-        getCellNames());
+        getCellNames(),
+        selectedVerisons);
   }
 
   public CellPathResolver getCellNames() {
@@ -215,4 +228,9 @@ public class TargetNode<T> implements Comparable<TargetNode<?>>, HasBuildTarget 
   public ImmutableSet<VisibilityPattern> getVisibilityPatterns() {
     return visibilityPatterns;
   }
+
+  public Optional<ImmutableMap<BuildTarget, Version>> getSelectedVersions() {
+    return selectedVersions;
+  }
+
 }

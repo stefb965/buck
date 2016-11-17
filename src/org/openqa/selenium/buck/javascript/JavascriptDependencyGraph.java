@@ -19,7 +19,6 @@ package org.openqa.selenium.buck.javascript;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -67,7 +66,7 @@ public class JavascriptDependencyGraph {
     }
 
     // Final step, topo sort the graph of deps and map back to files.
-    ImmutableList<String> sorted = TopologicalSort.sort(graph, Predicates.<String>alwaysTrue());
+    ImmutableList<String> sorted = TopologicalSort.sort(graph);
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
     builder.add(BASE_JS);
 

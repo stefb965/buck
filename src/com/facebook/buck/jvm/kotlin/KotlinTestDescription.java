@@ -147,6 +147,7 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
                 args.vmArgs,
                 /* nativeLibsEnvironment */ ImmutableMap.of(),
                 args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+                args.testCaseTimeoutMs,
                 args.env,
                 args.getRunTestSeparately(),
                 args.getForkMode(),
@@ -174,6 +175,7 @@ public class KotlinTestDescription implements Description<KotlinTestDescription.
     public Optional<Level> stdErrLogLevel;
     public Optional<Level> stdOutLogLevel;
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<Long> testCaseTimeoutMs;
     public ImmutableMap<String, String> env = ImmutableMap.of();
 
     public boolean getRunTestSeparately() {

@@ -46,7 +46,6 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -73,6 +72,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 /**
@@ -282,8 +282,8 @@ class NativeLibraryMergeEnhancer {
       for (NativeLinkable constituentLinkable : constituents.getLinkables()) {
         // For each dep of each constituent of each merged lib...
         for (NativeLinkable dep : Iterables.concat(
-            constituentLinkable.getNativeLinkableDeps(null),
-            constituentLinkable.getNativeLinkableExportedDeps(null))) {
+            constituentLinkable.getNativeLinkableDeps(),
+            constituentLinkable.getNativeLinkableExportedDeps())) {
           // If that dep is in a different merged lib, add a dependency.
           MergedNativeLibraryConstituents mergedDep =
               Preconditions.checkNotNull(linkableMembership.get(dep));
@@ -330,7 +330,7 @@ class NativeLibraryMergeEnhancer {
               ": " + cycleString);
     }
 
-    return TopologicalSort.sort(graph, x -> true);
+    return TopologicalSort.sort(graph);
   }
 
   /**
@@ -351,11 +351,11 @@ class NativeLibraryMergeEnhancer {
 
       List<MergedLibNativeLinkable> orderedDeps = getStructuralDeps(
           constituents,
-          l -> l.getNativeLinkableDeps(null),
+          NativeLinkable::getNativeLinkableDeps,
           mergeResults);
       List<MergedLibNativeLinkable> orderedExportedDeps = getStructuralDeps(
           constituents,
-          l -> l.getNativeLinkableExportedDeps(null),
+          NativeLinkable::getNativeLinkableExportedDeps,
           mergeResults);
 
       MergedLibNativeLinkable mergedLinkable = new MergedLibNativeLinkable(
@@ -621,14 +621,26 @@ class NativeLibraryMergeEnhancer {
     }
 
     @Override
-    public Iterable<? extends NativeLinkable> getNativeLinkableDeps(final CxxPlatform cxxPlatform) {
-      return getMappedDeps(l -> l.getNativeLinkableDeps(cxxPlatform));
+    public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
+      return getMappedDeps(NativeLinkable::getNativeLinkableDeps);
     }
 
     @Override
     public Iterable<? extends NativeLinkable>
-    getNativeLinkableExportedDeps(final CxxPlatform cxxPlatform) {
-      return getMappedDeps(l -> l.getNativeLinkableExportedDeps(cxxPlatform));
+    getNativeLinkableExportedDeps() {
+      return getMappedDeps(NativeLinkable::getNativeLinkableExportedDeps);
+    }
+
+    @Override
+    public Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
+        final CxxPlatform cxxPlatform) {
+      return getMappedDeps(l -> l.getNativeLinkableDepsForPlatform(cxxPlatform));
+    }
+
+    @Override
+    public Iterable<? extends NativeLinkable>
+    getNativeLinkableExportedDepsForPlatform(final CxxPlatform cxxPlatform) {
+      return getMappedDeps(l -> l.getNativeLinkableExportedDepsForPlatform(cxxPlatform));
     }
 
     private Iterable<? extends NativeLinkable> getMappedDeps(
@@ -656,7 +668,8 @@ class NativeLibraryMergeEnhancer {
       if (type == Linker.LinkableDepType.STATIC_PIC) {
         ImmutableList.Builder<NativeLinkableInput> builder = ImmutableList.builder();
         for (NativeLinkable linkable : constituents.getLinkables()) {
-          builder.add(linkable.getNativeLinkableInput(cxxPlatform, type));
+          builder.add(
+              linkable.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC_PIC));
         }
         return NativeLinkableInput.concat(builder.build());
       }
@@ -710,13 +723,8 @@ class NativeLibraryMergeEnhancer {
               linkable.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC_PIC);
           builder.add(
               staticPic.withArgs(
-                  FluentIterable.from(staticPic.getArgs()).transformAndConcat(
-                      new Function<Arg, Iterable<Arg>>() {
-                        @Override
-                        public Iterable<Arg> apply(Arg arg) {
-                          return linker.linkWhole(arg);
-                        }
-                      })));
+                  FluentIterable.from(staticPic.getArgs())
+                      .transformAndConcat(linker::linkWhole)));
         }
       }
       return NativeLinkableInput.concat(builder.build());
@@ -772,8 +780,8 @@ class NativeLibraryMergeEnhancer {
             // Android Binaries will use share deps by default.
             Linker.LinkableDepType.SHARED,
             Iterables.concat(
-                getNativeLinkableDeps(cxxPlatform),
-                getNativeLinkableExportedDeps(cxxPlatform)),
+                getNativeLinkableDepsForPlatform(cxxPlatform),
+                getNativeLinkableExportedDepsForPlatform(cxxPlatform)),
             Optional.empty(),
             Optional.empty(),
             ImmutableSet.of(),
@@ -782,7 +790,7 @@ class NativeLibraryMergeEnhancer {
       }
       return ImmutableMap.of(
           soname,
-          (SourcePath) new BuildTargetSourcePath(target)
+          new BuildTargetSourcePath(target)
       );
     }
   }

@@ -35,6 +35,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.HasBuildTarget;
@@ -61,6 +62,7 @@ import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutorPool;
@@ -97,6 +99,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentMap;
 
 import javax.annotation.Nullable;
 
@@ -281,6 +284,7 @@ public class BuildCommand extends AbstractCommand {
       Console console,
       BuckEventBus eventBus,
       Optional<TargetDevice> targetDevice,
+      Optional<ConcurrentMap<String, WorkerProcessPool>> persistentWorkerPools,
       Platform platform,
       ImmutableMap<String, String> environment,
       BuildStamper stamper,
@@ -300,10 +304,11 @@ public class BuildCommand extends AbstractCommand {
         androidPlatformTargetSupplier,
         buildEngine,
         artifactCache,
-        buckConfig.createDefaultJavaPackageFinder(),
+        buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
         console,
         buckConfig.getDefaultTestTimeoutMillis(),
         isCodeCoverageEnabled(),
+        buckConfig.getBooleanValue("test", "incl_no_location_classes", false),
         isDebugEnabled(),
         shouldReportAbsolutePaths(),
         stamper,
@@ -315,6 +320,7 @@ public class BuildCommand extends AbstractCommand {
         getConcurrencyLimit(buckConfig),
         adbOptions,
         targetDeviceOptions,
+        persistentWorkerPools,
         executors);
   }
 
@@ -410,6 +416,7 @@ public class BuildCommand extends AbstractCommand {
       ActionGraphAndResolver actionGraphAndResolver,
       final WeightedListeningExecutorService executorService)
       throws InterruptedException, IOException {
+
     DistBuildCellIndexer cellIndexer =
         new DistBuildCellIndexer(params.getCell());
     DistBuildFileHashes distributedBuildFileHashes = new DistBuildFileHashes(
@@ -418,7 +425,8 @@ public class BuildCommand extends AbstractCommand {
         params.getFileHashCache(),
         cellIndexer,
         executorService,
-        params.getBuckConfig().getKeySeed());
+        params.getBuckConfig().getKeySeed(),
+        params.getBuckConfig());
 
     return DistBuildState.dump(
         cellIndexer,
@@ -626,13 +634,6 @@ public class BuildCommand extends AbstractCommand {
     return actionGraphAndResolver;
   }
 
-  public ActionGraphAndResolver createActionGraphAndResolver(
-      CommandRunnerParams params,
-      ListeningExecutorService executor)
-      throws IOException, InterruptedException, ActionGraphCreationException {
-    return createActionGraphAndResolver(params, createTargetGraph(params, executor));
-  }
-
   protected int executeLocalBuild(
       CommandRunnerParams params,
       ActionGraphAndResolver actionGraphAndResolver,
@@ -687,6 +688,7 @@ public class BuildCommand extends AbstractCommand {
         params.getConsole(),
         params.getBuckEventBus(),
         Optional.empty(),
+        params.getPersistentWorkerPools(),
         rootCellBuckConfig.getPlatform(),
         rootCellBuckConfig.getEnvironment(),
         params.getBuildStamper(),
@@ -708,6 +710,11 @@ public class BuildCommand extends AbstractCommand {
   @Override
   public boolean isReadOnly() {
     return false;
+  }
+
+  @Override
+  public boolean isSourceControlStatsGatheringEnabled() {
+    return true;
   }
 
   Build getBuild() {

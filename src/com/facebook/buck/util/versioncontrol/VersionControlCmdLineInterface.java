@@ -102,15 +102,6 @@ public interface VersionControlCmdLineInterface {
 
   /**
    *
-   * @return a list of all the untracked of the current revision
-   * @throws VersionControlCommandFailedException
-   * @throws InterruptedException
-   */
-  ImmutableSet<String> untrackedFiles()
-      throws VersionControlCommandFailedException, InterruptedException;
-
-  /**
-   *
    * @param revisionId
    * @return Unix timestamp of given revisionId (in seconds)
    * @throws VersionControlCommandFailedException
@@ -120,27 +111,12 @@ public interface VersionControlCmdLineInterface {
       throws VersionControlCommandFailedException, InterruptedException;
 
   /**
-   * First the method finds the common ancestor between the tipRevisionId and revisionId.
-   * Then compares that revision with the bookmarks.
-   * @param tipRevisionId the revision that will be used as a tip.
-   * @param revisionId  the revision that you want to check if is off the bookmarks
-   * @param bookmarks the set of bookmarks that will be checked
-   * @return a set of bookmarks that the revisionId is off.
+   * It receives a list of bookmarks and returns a map of bookmarks to revision ids.
+   * @return a map of bookmark to revision id.
    * @throws InterruptedException
-   */
-  ImmutableSet<String> trackedBookmarksOffRevisionId(
-      String tipRevisionId,
-      String revisionId,
-      ImmutableSet<String> bookmarks
-  ) throws InterruptedException;
-
-  /**
-   *
-   * @return a map of all the bookmarks with the bookmark name as key and the revision as value.
    * @throws VersionControlCommandFailedException
-   * @throws InterruptedException
    */
-  ImmutableMap<String, String> allBookmarks()
-      throws VersionControlCommandFailedException, InterruptedException;
+  ImmutableMap<String, String> bookmarksRevisionsId(ImmutableSet<String> bookmarks)
+      throws InterruptedException, VersionControlCommandFailedException;
 
 }

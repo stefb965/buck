@@ -22,7 +22,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.json.ProjectBuildFileParserFactory;
@@ -112,7 +111,8 @@ public class JavaSymbolFinder {
     // First find all the source roots in the current project.
     Collection<Path> srcRoots;
     try {
-      srcRoots = srcRootsFinder.getAllSrcRootPaths(config.getSrcRoots());
+      srcRoots =
+          srcRootsFinder.getAllSrcRootPaths(config.getView(JavaBuckConfig.class).getSrcRoots());
     } catch (IOException e) {
       buckEventBus.post(ThrowableConsoleEvent.create(e, "Error while searching for source roots."));
       return ImmutableSetMultimap.of();
@@ -158,8 +158,7 @@ public class JavaSymbolFinder {
         environment,
         buckEventBus,
         projectFilesystem,
-        /* ignoreBuckAutodepsFiles */ false,
-        new WatchmanDiagnosticCache())) {
+        /* ignoreBuckAutodepsFiles */ false)) {
       for (Path sourceFile : sourceFilePaths) {
         for (Path buckFile : possibleBuckFilesForSourceFile(sourceFile)) {
           List<Map<String, Object>> rules;

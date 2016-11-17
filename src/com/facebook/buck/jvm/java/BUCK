@@ -31,10 +31,20 @@ java_library(
   autodeps = True,
 )
 
+java_library(
+  name = 'javac-sink',
+  srcs = [
+    'JavacEventSink.java',
+  ],
+  autodeps = True,
+  visibility = ['PUBLIC'],
+)
+
 java_immutables_library(
   name = 'support',
   srcs = [
     'AbstractJavaOptions.java',
+    'AbstractJavacExecutionContext.java',
     'AbstractJavacOptions.java',
     'AbstractJavacVersion.java',
     'AnnotationProcessingEvent.java',
@@ -57,6 +67,8 @@ java_immutables_library(
     'JavaLibrary.java',
     'Javac.java',
     'JavacErrorParser.java',
+    'JavacEventSinkToBuckEventBusBridge.java',
+    'Jsr199TracingBridge.java',
     'JavaInMemoryFileManager.java',
     'JavaInMemoryFileObject.java',
     'JavaNoOpFileObject.java',
@@ -70,6 +82,7 @@ java_immutables_library(
   ],
   immutable_types = [
     'JavaOptions',
+    'JavacExecutionContext',
     'JavacOptions',
     'JavacVersion',
   ],
@@ -146,6 +159,7 @@ java_immutables_library(
     'AccumulateClassNamesStep.java',
     'BaseCompileToJarStepFactory.java',
     'CalculateAbiStep.java',
+    'ClasspathChecker.java',
     'CompileToJarStepFactory.java',
     'CopyResourcesStep.java',
     'GenerateCodeCoverageReportStep.java',
@@ -181,7 +195,7 @@ java_library(
   autodeps = True,
   visibility = [
     '//src/com/facebook/buck/cli:cli',
-    '//src/com/facebook/buck/jvm/java/autodeps:autodeps',
+    '//src/com/facebook/buck/jvm/java/autodeps:',
     '//src/com/facebook/buck/jvm/java/intellij:intellij',
     '//test/com/facebook/buck/jvm/java:java',
     '//test/com/facebook/buck/jvm/java/autodeps:autodeps',

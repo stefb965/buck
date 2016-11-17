@@ -68,9 +68,6 @@ import javax.tools.StandardJavaFileManager;
 
 public class Jsr199JavacIntegrationTest {
 
-  private static final SourcePathResolver PATH_RESOLVER =
-      new SourcePathResolver(
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
   public static final ImmutableSortedSet<Path> SOURCE_PATHS =
       ImmutableSortedSet.of(Paths.get("Example.java"));
   @Rule
@@ -117,17 +114,27 @@ public class Jsr199JavacIntegrationTest {
   public void testClassesFile() throws IOException, InterruptedException {
     Jsr199Javac javac = createJavac(/* withSyntaxError */ false);
     ExecutionContext executionContext = TestExecutionContext.newInstance();
-    int exitCode = javac.buildWithClasspath(
-        executionContext,
+    JavacExecutionContext javacExecutionContext = JavacExecutionContext.of(
+        new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
+        executionContext.getStdErr(),
+        executionContext.getClassLoaderCache(),
+        executionContext.getObjectMapper(),
+        executionContext.getVerbosity(),
+        executionContext.getJavaPackageFinder(),
         createProjectFilesystem(),
-        PATH_RESOLVER,
+        NoOpClassUsageFileWriter.instance(),
+        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
+        executionContext.getEnvironment(),
+        executionContext.getProcessExecutor(),
+        ImmutableList.of());
+
+    int exitCode = javac.buildWithClasspath(
+        javacExecutionContext,
         BuildTargetFactory.newInstance("//some:example"),
         ImmutableList.of(),
         ImmutableSet.of(),
         SOURCE_PATHS,
         pathToSrcsList,
-        Optional.empty(),
-        NoOpClassUsageFileWriter.instance(),
         Optional.empty());
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -154,17 +161,27 @@ public class Jsr199JavacIntegrationTest {
     Jsr199Javac javac = createJavac(
         /* withSyntaxError */ false);
     ExecutionContext executionContext = TestExecutionContext.newInstance();
-    int exitCode = javac.buildWithClasspath(
-        executionContext,
+    JavacExecutionContext javacExecutionContext = JavacExecutionContext.of(
+        new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
+        executionContext.getStdErr(),
+        executionContext.getClassLoaderCache(),
+        executionContext.getObjectMapper(),
+        executionContext.getVerbosity(),
+        executionContext.getJavaPackageFinder(),
         createProjectFilesystem(),
-        PATH_RESOLVER,
+        NoOpClassUsageFileWriter.instance(),
+        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
+        executionContext.getEnvironment(),
+        executionContext.getProcessExecutor(),
+        ImmutableList.of());
+
+    int exitCode = javac.buildWithClasspath(
+        javacExecutionContext,
         BuildTargetFactory.newInstance("//some:example"),
         ImmutableList.of(),
         ImmutableSet.of(),
         SOURCE_PATHS,
         pathToSrcsList,
-        Optional.empty(),
-        NoOpClassUsageFileWriter.instance(),
         Optional.empty());
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -244,20 +261,30 @@ public class Jsr199JavacIntegrationTest {
         /* withSyntaxError */ false,
         Optional.of(fakeJavacJar));
 
+    JavacExecutionContext javacExecutionContext = JavacExecutionContext.of(
+        new JavacEventSinkToBuckEventBusBridge(executionContext.getBuckEventBus()),
+        executionContext.getStdErr(),
+        executionContext.getClassLoaderCache(),
+        executionContext.getObjectMapper(),
+        executionContext.getVerbosity(),
+        executionContext.getJavaPackageFinder(),
+        createProjectFilesystem(),
+        NoOpClassUsageFileWriter.instance(),
+        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
+        executionContext.getEnvironment(),
+        executionContext.getProcessExecutor(),
+        ImmutableList.of(fakeJavacJar));
+
     boolean caught = false;
 
     try {
       javac.buildWithClasspath(
-          executionContext,
-          createProjectFilesystem(),
-          PATH_RESOLVER,
+          javacExecutionContext,
           BuildTargetFactory.newInstance("//some:example"),
           ImmutableList.of(),
           ImmutableSet.of(),
           SOURCE_PATHS,
           pathToSrcsList,
-          Optional.empty(),
-          NoOpClassUsageFileWriter.instance(),
           Optional.empty());
       fail("Did not expect compilation to succeed");
     } catch (UnsupportedOperationException ex) {

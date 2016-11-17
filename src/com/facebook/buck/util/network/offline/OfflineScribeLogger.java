@@ -187,7 +187,7 @@ public class OfflineScribeLogger extends ScribeLogger {
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() throws IOException {
     // Request stopping sending as soon as possible.
     startedClosing = true;
 
@@ -244,7 +244,7 @@ public class OfflineScribeLogger extends ScribeLogger {
 
   private synchronized void deleteOldLogsIfNeeded(long maxSizeForOldLogs) throws IOException {
     ImmutableSortedSet<Path> logs =
-        filesystem.getSortedMatchingDirectoryContents(logDir, LOGFILE_PATTERN);
+        filesystem.getMtimeSortedMatchingDirectoryContents(logDir, LOGFILE_PATTERN);
 
     long totalSize = 0;
     boolean deleteLogs = false;
@@ -271,7 +271,7 @@ public class OfflineScribeLogger extends ScribeLogger {
         // No logs to submit to Scribe.
         return;
       }
-      logsPaths = filesystem.getSortedMatchingDirectoryContents(
+      logsPaths = filesystem.getMtimeSortedMatchingDirectoryContents(
           logDir,
           LOGFILE_PATTERN);
     } catch (Exception e) {
@@ -287,8 +287,8 @@ public class OfflineScribeLogger extends ScribeLogger {
       }
 
       // Get iterator.
-      Iterator<ScribeData> it = null;
-      File logFile = null;
+      Iterator<ScribeData> it;
+      File logFile;
       try {
         logFile = logPath.toFile();
         totalBytesToSend += logFile.length();
@@ -297,7 +297,7 @@ public class OfflineScribeLogger extends ScribeLogger {
           return;
         }
 
-        InputStream logFileStream = null;
+        InputStream logFileStream;
         try {
           logFileStream = new BufferedInputStream(new FileInputStream(logFile), BUFFER_SIZE);
         } catch (FileNotFoundException e) {

@@ -24,6 +24,7 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
@@ -43,6 +44,7 @@ import org.immutables.value.Value;
 import java.io.InputStream;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentMap;
 
 @Value.Immutable(copy = false)
 @BuckStyleImmutable
@@ -74,6 +76,8 @@ public interface AbstractCommandRunnerParams {
   Optional<ProcessManager> getProcessManager();
 
   Optional<WebServer> getWebServer();
+
+  Optional<ConcurrentMap<String, WorkerProcessPool>> getPersistentWorkerPools();
 
   BuckConfig getBuckConfig();
 

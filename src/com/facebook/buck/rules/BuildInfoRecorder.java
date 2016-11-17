@@ -147,7 +147,7 @@ public class BuildInfoRecorder {
   private ImmutableMap<String, String> getBuildMetadata() {
     return ImmutableMap.<String, String>builder()
         .put(
-            BuildInfo.METADATA_KEY_FOR_ADDITIONAL_INFO,
+            BuildInfo.MetadataKey.ADDITIONAL_INFO,
             formatAdditionalArtifactInfo(
                 ImmutableMap.<String, String>builder()
                     .put("build_id", buildId.toString())
@@ -185,10 +185,6 @@ public class BuildInfoRecorder {
   public BuildInfoRecorder addBuildMetadata(String key, String value) {
     buildMetadata.put(key, value);
     return this;
-  }
-
-  public BuildInfoRecorder addBuildMetadata(String key, ImmutableList<String> value) {
-    return addBuildMetadata(key, toJson(value));
   }
 
   public BuildInfoRecorder addBuildMetadata(String key, ImmutableMap<String, String> value) {
@@ -388,10 +384,6 @@ public class BuildInfoRecorder {
   @VisibleForTesting
   String getMetadataFor(String key) {
     return metadataToWrite.get(key);
-  }
-
-  boolean hasBuildMetadata(String key) {
-    return buildMetadata.containsKey(key);
   }
 
   Optional<String> getBuildMetadataFor(String key) {

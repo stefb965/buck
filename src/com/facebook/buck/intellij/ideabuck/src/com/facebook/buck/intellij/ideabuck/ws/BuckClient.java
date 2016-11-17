@@ -30,21 +30,16 @@ import org.eclipse.jetty.websocket.client.WebSocketClient;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BuckClient {
   private static final Logger LOG = Logger.getInstance(BuckClient.class);
-  private static final Map<Project, BuckClient> clientKeeper =
-      Collections.synchronizedMap(new HashMap<Project, BuckClient>());
   private BuckSocket mBuckSocket;
   private WebSocketClient mWSClient;
   private AtomicBoolean mConnecting;
   private Project mProject;
 
-  private BuckClient(final BuckEventsHandlerInterface buckEventHandler, Project project) {
+  BuckClient(final BuckEventsHandlerInterface buckEventHandler, Project project) {
     mWSClient = new WebSocketClient();
     mProject = project;
     mConnecting = new AtomicBoolean(false);
@@ -70,15 +65,6 @@ public class BuckClient {
     );
   }
 
-  public static synchronized BuckClient getOrInstantiate(
-      Project project,
-      BuckEventsHandlerInterface buckEventHandler) {
-    if (!clientKeeper.containsKey(project)) {
-      clientKeeper.put(project, new BuckClient(buckEventHandler, project));
-    }
-    return clientKeeper.get(project);
-  }
-
   public void connect() {
     if (isConnected() || mConnecting.get()) {
       return;
@@ -87,10 +73,8 @@ public class BuckClient {
     ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
       @Override
       public void run() {
-          BuckWSServerPortUtils wsPortUtils = new BuckWSServerPortUtils();
           try {
-            // Get port
-            int port = wsPortUtils.getPort(mProject.getBasePath());
+            int port = BuckWSServerPortUtils.getPort(mProject.getBasePath());
             // Connect to WebServer
             connectToWebServer("localhost", port);
           } catch (NumberFormatException e) {
@@ -149,7 +133,7 @@ public class BuckClient {
             connect();
           } else {
             mWSClient.destroy();
-            clientKeeper.remove(mProject);
+            BuckClientManager.removeClient(mProject);
           }
         } catch (InterruptedException e) {
           LOG.error(

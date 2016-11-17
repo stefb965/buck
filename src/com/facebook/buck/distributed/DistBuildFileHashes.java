@@ -16,6 +16,7 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.cli.ConfigPathGetter;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.hashing.FileHashLoader;
@@ -71,7 +72,8 @@ public class DistBuildFileHashes {
       final FileHashCache rootCellFileHashCache,
       final Function<? super Path, Integer> cellIndexer,
       ListeningExecutorService executorService,
-      final int keySeed) {
+      final int keySeed,
+      final ConfigPathGetter buckConfig) {
 
     this.remoteFileHashes = CacheBuilder.newBuilder().build(
         new CacheLoader<ProjectFilesystem, BuildJobStateFileHashes>() {
@@ -91,7 +93,8 @@ public class DistBuildFileHashes {
                     ImmutableList.of(rootCellFileHashCache,
                         DefaultFileHashCache.createDefaultFileHashCache(key))),
                 key,
-                remoteFileHashes.get(key));
+                remoteFileHashes.get(key),
+                buckConfig);
           }
         });
     this.ruleKeyFactories = createRuleKeyFactories(sourcePathResolver, fileHashLoaders, keySeed);
@@ -165,16 +168,6 @@ public class DistBuildFileHashes {
       throws IOException, InterruptedException {
     try {
       return fileHashes.get();
-    } catch (ExecutionException e) {
-      Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
-      Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);
-      throw new RuntimeException(e.getCause());
-    }
-  }
-
-  public ImmutableMap<BuildRule, RuleKey> getRuleKeys() throws IOException, InterruptedException {
-    try {
-      return ruleKeys.get();
     } catch (ExecutionException e) {
       Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
       Throwables.propagateIfInstanceOf(e.getCause(), InterruptedException.class);

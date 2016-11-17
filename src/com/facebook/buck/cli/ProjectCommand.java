@@ -17,11 +17,9 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.apple.AppleBinaryDescription;
-import com.facebook.buck.apple.AppleBuildRules;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
-import com.facebook.buck.apple.AppleTestDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.project_generator.ProjectGenerator;
 import com.facebook.buck.apple.project_generator.WorkspaceAndProjectGenerator;
@@ -66,13 +64,17 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.swift.SwiftBuckConfig;
+import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.ProcessManager;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -102,6 +104,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.channels.Channels;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -169,12 +172,6 @@ public class ProjectCommand extends BuildCommand {
   private boolean withoutDependenciesTests = false;
 
   @Option(
-      name = "--combine-test-bundles",
-      usage = "Combine multiple ios/osx test targets into the same bundle if they have identical " +
-          "settings")
-  private boolean combineTestBundles = false;
-
-  @Option(
       name = "--ide",
       usage = "The type of IDE for which to generate a project. You may specify it in the " +
           ".buckconfig file. Please refer to https://buckbuild.com/concept/buckconfig.html#project")
@@ -205,11 +202,6 @@ public class ProjectCommand extends BuildCommand {
       name = "--deprecated-ij-generation",
       usage = "Enables the deprecated IntelliJ project generator.")
   private boolean deprecatedIntelliJProjectGenerationEnabled = false;
-
-  @Option(
-      name = "--experimental-ij-generation",
-      usage = "Enables the experimental IntelliJ project generator.")
-  private boolean experimentalIntelliJProjectGenerationEnabled = false;
 
   @Option(
       name = "--intellij-aggregation-mode",
@@ -267,10 +259,6 @@ public class ProjectCommand extends BuildCommand {
     return dryRun;
   }
 
-  public boolean getCombineTestBundles() {
-    return combineTestBundles;
-  }
-
   public boolean shouldProcessAnnotations() {
     return processAnnotations;
   }
@@ -280,14 +268,18 @@ public class ProjectCommand extends BuildCommand {
   }
 
   public JavaPackageFinder getJavaPackageFinder(BuckConfig buckConfig) {
-    return buckConfig.createDefaultJavaPackageFinder();
+    return buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
   }
 
   public Optional<String> getPathToDefaultAndroidManifest(BuckConfig buckConfig) {
     return buckConfig.getValue("project", "default_android_manifest");
   }
 
-  public Optional<String> getPathToPostProcessScript(BuckConfig buckConfig) {
+  private Optional<String> getPathToPreProcessScript(BuckConfig buckConfig) {
+    return buckConfig.getValue("project", "pre_process");
+  }
+
+  private Optional<String> getPathToPostProcessScript(BuckConfig buckConfig) {
     return buckConfig.getValue("project", "post_process");
   }
 
@@ -401,16 +393,14 @@ public class ProjectCommand extends BuildCommand {
         buckConfig.getValue(
             "project",
             "intellij_aggregation_mode").map(IjModuleGraph.AggregationMode::fromString);
-    return aggregationMode.orElse(IjModuleGraph.AggregationMode.NONE);
+    return aggregationMode.orElse(IjModuleGraph.AggregationMode.AUTO);
   }
 
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
-    if (experimentalIntelliJProjectGenerationEnabled) {
-      throw new HumanReadableException(
-          "The --experimental-ij-generation is no longer needed. If you wish to use the old " +
-              "project generator please use --deprecated-ij-generation because without that " +
-              "switch the generator previous enabled by the \"experimental\" switch will be used.");
+    int rc = runPreprocessScriptIfNeeded(params);
+    if (rc != 0) {
+      return rc;
     }
 
     Ide projectIde = getIdeFromBuckConfig(params.getBuckConfig()).orElse(null);
@@ -420,6 +410,7 @@ public class ProjectCommand extends BuildCommand {
     try (CommandThreadManager pool = new CommandThreadManager(
         "Project",
         getConcurrencyLimit(params.getBuckConfig()))) {
+
       ImmutableSet<BuildTarget> passedInTargetsSet;
       TargetGraph projectGraph;
 
@@ -472,7 +463,7 @@ public class ProjectCommand extends BuildCommand {
             projectPredicates.getProjectRootsPredicate());
       } else if (projectIde == Ide.INTELLIJ && needsFullRecursiveParse) {
         ImmutableSet<BuildTarget> supplementalGraphRoots = getRootBuildTargetsForIntelliJ(
-            projectIde,
+            Ide.INTELLIJ,
             projectGraph,
             projectPredicates);
         graphRoots = Sets.union(passedInTargetsSet, supplementalGraphRoots).immutableCopy();
@@ -530,6 +521,7 @@ public class ProjectCommand extends BuildCommand {
             // unreachable
             throw new IllegalStateException("'ide' should always be of type 'INTELLIJ' or 'XCODE'");
         }
+
       } finally {
         params.getBuckEventBus().post(ProjectGenerationEvent.finished());
       }
@@ -639,8 +631,7 @@ public class ProjectCommand extends BuildCommand {
     BuildRuleResolver ruleResolver = result.getResolver();
     SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
 
-    JavacOptions javacOptions = new JavaBuckConfig(buckConfig)
-        .getDefaultJavacOptions();
+    JavacOptions javacOptions = buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions();
 
     IjProject project = new IjProject(
         targetGraphAndTargets,
@@ -728,6 +719,50 @@ public class ProjectCommand extends BuildCommand {
             "work correctly with IntelliJ. Please fix the errors and run this command again.\n");
   }
 
+  private int runPreprocessScriptIfNeeded(
+      CommandRunnerParams params)
+      throws IOException, InterruptedException {
+    Optional<String> pathToPreProcessScript = getPathToPreProcessScript(params.getBuckConfig());
+    if (!pathToPreProcessScript.isPresent()) {
+      return 0;
+    }
+
+    String pathToScript = pathToPreProcessScript.get();
+    if (!Paths.get(pathToScript).isAbsolute()) {
+      pathToScript = params
+          .getCell()
+          .getFilesystem()
+          .getPathForRelativePath(pathToScript)
+          .toAbsolutePath()
+          .toString();
+    }
+
+    ListeningProcessExecutor processExecutor = new ListeningProcessExecutor();
+    ProcessExecutorParams processExecutorParams =
+        ProcessExecutorParams.builder()
+            .addCommand(pathToScript)
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(params.getEnvironment())
+                    .put("BUCK_PROJECT_TARGETS", Joiner.on(" ").join(getArguments()))
+                    .build())
+            .setDirectory(params.getCell().getFilesystem().getRootPath())
+            .build();
+    ForwardingProcessListener processListener =
+        new ForwardingProcessListener(
+            // Using rawStream to avoid shutting down SuperConsole. This is safe to do
+            // because this process finishes before we start parsing process.
+            Channels.newChannel(params.getConsole().getStdOut().getRawStream()),
+            Channels.newChannel(params.getConsole().getStdErr().getRawStream()));
+    ListeningProcessExecutor.LaunchedProcess process =
+        processExecutor.launchProcess(processExecutorParams, processListener);
+    try {
+      return processExecutor.waitForProcess(process);
+    } finally {
+      processExecutor.destroyProcess(process, /* force */ false);
+      processExecutor.waitForProcess(process);
+    }
+  }
 
   /**
    * Run intellij specific project generation actions.
@@ -900,8 +935,7 @@ public class ProjectCommand extends BuildCommand {
         getFocusModules(targetGraphAndTargets, params, executor),
         new HashMap<Path, ProjectGenerator>(),
         getCombinedProject(),
-        shouldBuildWithBuck,
-        getCombineTestBundles());
+        shouldBuildWithBuck);
     if (!requiredBuildTargets.isEmpty()) {
       BuildCommand buildCommand = new BuildCommand(requiredBuildTargets.stream()
           .map(Object::toString)
@@ -929,11 +963,10 @@ public class ProjectCommand extends BuildCommand {
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
       ImmutableList<String> buildWithBuckFlags,
-      ImmutableList<BuildTarget> focusModules,
+      ImmutableSet<UnflavoredBuildTarget> focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
-      boolean buildWithBuck,
-      boolean combineTestBundles)
+      boolean buildWithBuck)
       throws IOException, InterruptedException {
     ImmutableSet<BuildTarget> targets;
     if (passedInTargetsSet.isEmpty()) {
@@ -945,10 +978,6 @@ public class ProjectCommand extends BuildCommand {
     }
 
     LOG.debug("Generating workspace for config targets %s", targets);
-    ImmutableSet<TargetNode<?>> testTargetNodes = targetGraphAndTargets.getAssociatedTests();
-    ImmutableSet<TargetNode<AppleTestDescription.Arg>> groupableTests = combineTestBundles
-        ? AppleBuildRules.filterGroupableTests(testTargetNodes)
-        : ImmutableSet.of();
     ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder = ImmutableSet.builder();
     for (final BuildTarget inputTarget : targets) {
       TargetNode<?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
@@ -999,7 +1028,6 @@ public class ProjectCommand extends BuildCommand {
           cxxBuckConfig,
           appleConfig,
           swiftBuckConfig);
-      generator.setGroupableTests(groupableTests);
       ListeningExecutorService executorService = params.getExecutors().get(
           ExecutorPool.PROJECT);
       Preconditions.checkNotNull(
@@ -1018,13 +1046,13 @@ public class ProjectCommand extends BuildCommand {
     return requiredBuildTargetsBuilder.build();
   }
 
-  private ImmutableList<BuildTarget> getFocusModules(
+  private ImmutableSet<UnflavoredBuildTarget> getFocusModules(
       final TargetGraphAndTargets targetGraphAndTargets,
       CommandRunnerParams params,
       ListeningExecutorService executor)
       throws IOException, InterruptedException {
     if (modulesToFocusOn == null) {
-      return ImmutableList.of();
+      return ImmutableSet.of();
     }
 
     Iterable<String> patterns = Splitter.onPattern("\\s+").split(modulesToFocusOn);
@@ -1050,7 +1078,7 @@ public class ProjectCommand extends BuildCommand {
     } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
           MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return ImmutableList.of();
+      return ImmutableSet.of();
     }
     LOG.debug("Selected targets: %s", passedInTargetsSet.toString());
 
@@ -1060,10 +1088,11 @@ public class ProjectCommand extends BuildCommand {
         .map(node -> node.getBuildTarget().getUnflavoredBuildTarget())
         .collect(MoreCollectors.toImmutableSet());
 
-    // Match the targets resolved using the patterns wit the valid of valid targets.
-    ImmutableList<BuildTarget> result = passedInTargetsSet.stream()
+    // Match the targets resolved using the patterns with the valid of valid targets.
+    ImmutableSet<UnflavoredBuildTarget> result = passedInTargetsSet.stream()
       .filter(target -> validUnflavoredTargets.contains(target.getUnflavoredBuildTarget()))
-      .collect(MoreCollectors.toImmutableList());
+      .map(target -> target.getUnflavoredBuildTarget())
+      .collect(MoreCollectors.toImmutableSet());
 
     LOG.debug("Focused targets: %s", result.toString());
     return result;

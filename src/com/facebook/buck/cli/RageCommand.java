@@ -25,7 +25,6 @@ import com.facebook.buck.rage.DefaultExtraInfoCollector;
 import com.facebook.buck.rage.DefectSubmitResult;
 import com.facebook.buck.rage.ExtraInfoCollector;
 import com.facebook.buck.rage.InteractiveReport;
-import com.facebook.buck.rage.RageBuckConfig;
 import com.facebook.buck.rage.RageConfig;
 import com.facebook.buck.rage.VcsInfoCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -54,7 +53,7 @@ public class RageCommand extends AbstractCommand {
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
     BuckConfig buckConfig = params.getBuckConfig();
-    RageConfig rageConfig = RageBuckConfig.create(buckConfig);
+    RageConfig rageConfig = RageConfig.of(buckConfig);
     DirtyPrintStreamDecorator stdOut = params.getConsole().getStdOut();
     ProcessExecutor processExecutor = new DefaultProcessExecutor(params.getConsole());
 
@@ -82,6 +81,8 @@ public class RageCommand extends AbstractCommand {
       report = new InteractiveReport(
           reporter,
           filesystem,
+          params.getObjectMapper(),
+          params.getConsole(),
           stdOut,
           params.getStdIn(),
           params.getBuildEnvironmentDescription(),
@@ -92,6 +93,7 @@ public class RageCommand extends AbstractCommand {
       report = new AutomatedReport(
           reporter,
           filesystem,
+          params.getObjectMapper(),
           stdOut,
           params.getBuildEnvironmentDescription(),
           gatherVcsInfo ? vcsInfoCollector : Optional.empty(),

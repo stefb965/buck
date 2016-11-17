@@ -8,8 +8,6 @@ import com.facebook.buck.util.ProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import com.google.common.base.Strings;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -79,23 +77,6 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
-  public ImmutableSet<String> untrackedFiles() throws VersionControlCommandFailedException, InterruptedException {
-    String[] allUntrackedFiles =
-        executeCommand(gitCmd, "git", "ls-files", "--others", "--exclude-standard")
-            .trim()
-            .split(separator);
-    return FluentIterable.of(
-        allUntrackedFiles)
-        .filter(input -> !Strings.isNullOrEmpty(input))
-        .toSet();
-  }
-
-  @Override
-  public ImmutableMap<String, String> allBookmarks() throws VersionControlCommandFailedException, InterruptedException {
-    return null;
-  }
-
-  @Override
   public String commonAncestor(
       String revisionIdOne,
       String revisionIdTwo) throws VersionControlCommandFailedException, InterruptedException {
@@ -146,22 +127,9 @@ public class GitCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
-  public ImmutableSet<String> trackedBookmarksOffRevisionId(
-      String tipRevisionId,
-      String revisionId,
-      ImmutableSet<String> bookmarks) throws InterruptedException {
-    Optional<String> commonAncestor = commonAncestorOrAbsent(tipRevisionId, revisionId);
-    if (!commonAncestor.isPresent()) {
-      return ImmutableSet.of();
-    }
-
-    ImmutableSet.Builder<String> bookmarkSetBuilder = ImmutableSet.builder();
-    for (String bookmark : bookmarks) {
-      if (revisionIdOrAbsent(bookmark).equals(commonAncestor)) {
-        bookmarkSetBuilder.add(bookmark);
-      }
-    }
-    return bookmarkSetBuilder.build();
+  public ImmutableMap<String, String> bookmarksRevisionsId(ImmutableSet<String> bookmarks)
+      throws InterruptedException, VersionControlCommandFailedException {
+    throw new UnsupportedOperationException("bookmarksRevisionsId");
   }
 
   private String getRevisionId(String possibleMercurialRef) {

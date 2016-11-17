@@ -40,7 +40,7 @@ import java.util.Optional;
 public class AetherUtil {
 
   public static final String CLASSIFIER_SOURCES = "sources";
-  public static final String CLASSIFIER_JAVADOC = "javadoc";
+  public static final String CLASSIFIER_JAVADOC = "javadocs";
 
   private AetherUtil() {
   }

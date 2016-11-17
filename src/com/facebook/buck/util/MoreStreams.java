@@ -13,46 +13,55 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
+
 package com.facebook.buck.util;
 
-import com.facebook.buck.log.Logger;
-import com.google.common.base.Preconditions;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import javax.annotation.Nullable;
 
+/**
+ * Utility functions for working with Java 8 streams.
+ */
 public final class MoreStreams {
-  private static final Logger LOG = Logger.get(MoreStreams.class);
+  private MoreStreams() {}
 
-  private static final int READ_BUFFER_SIZE_BYTES = 8 * 1024;
-
-  private MoreStreams() {
-    // Not to be instantiated.
-  }
-
-  public static void copyExactly(InputStream source, OutputStream destination, long bytesToRead)
-      throws IOException {
-    Preconditions.checkNotNull(source);
-    Preconditions.checkNotNull(destination);
-    byte[] buffer = new byte[READ_BUFFER_SIZE_BYTES];
-
-    long totalReadByteCount = 0;
-    while (totalReadByteCount < bytesToRead) {
-      int maxBytesToReadNext = (int) Math.min(bytesToRead - totalReadByteCount, buffer.length);
-      int lastReadByteCount = source.read(buffer, 0, maxBytesToReadNext);
-
-      if (lastReadByteCount == -1) {
-        String msg = String.format(
-            "InputStream was missing [%d] bytes. Expected to read a total of [%d] bytes.",
-            bytesToRead - totalReadByteCount,
-            bytesToRead);
-        LOG.error(msg);
-        throw new IOException(msg);
+  /**
+   * Returns a function suitable for use in {@link Stream#flatMap(Function)} that casts the input
+   * to the given class if possible.
+   *
+   * Usage: {@code stream.flatMap(filterCast(Foo.class))}.
+   *
+   * Note, this is slightly slower than simply doing a filter and then explicitly casting.
+   * {@code stream.filter(Foo.class::isInstance).map(input -> ((Foo)input).stuff())}.
+   *
+   * In a benchmark of {@code filterCast -> map -> collect(toList)} with 1000 element input, this
+   * was the normalized result:
+   * <pre>
+   * flatMap(filterCast)  1.728465804
+   * filter               1.493715342
+   * plain for loop       1
+   * </pre>
+   *
+   * @param cls Class to cast to
+   * @param <T> Input type
+   * @param <R> Result type
+   * @return function that returns a singleton stream of the casted input, or null if input is not
+   * an instance.
+   */
+  @SuppressWarnings("unchecked")
+  @Nullable
+  public static <T, R> Function<T, Stream<R>> filterCast(Class<R> cls) {
+    return input -> {
+      if (cls.isInstance(input)) {
+        // This is notably faster than Stream.of();
+        return new SingletonStream<>((R) input);
+      } else {
+        // Returning null instead of empty stream is slightly faster. flatMap treats nulls the same
+        // as an empty stream.
+        return null;
       }
-
-      destination.write(buffer, 0, lastReadByteCount);
-      totalReadByteCount += lastReadByteCount;
-    }
+    };
   }
 }

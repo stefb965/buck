@@ -33,40 +33,8 @@ abstract class AbstractDoctorEndpointResponse {
   abstract Optional<String> getErrorMessage();
 
   @Value.Parameter
-  abstract StepStatus getParsingStatus();
+  abstract ImmutableList<DoctorSuggestion> getSuggestions();
 
-  @Value.Parameter
-  abstract StepStatus getRemoteCacheStatus();
-
-  @Value.Parameter
-  abstract StepStatus getEnvironmentStatus();
-
-  @Value.Parameter
-  abstract ImmutableList<String> getSuggestions();
-
-  public enum StepStatus {
-    OK("\u2705", "OK"),
-    WARNING("\u2757", "Warning"),
-    ERROR("\u274C", "Error"),
-    UNKNOWN("\u2753", "Unknown");
-
-    private final String emoji;
-    private final String text;
-
-    StepStatus(String emoji, String text) {
-      this.emoji = emoji;
-      this.text = text;
-    }
-
-    public String getEmoji() {
-      return this.emoji;
-    }
-
-    public String getText() {
-      return this.text;
-    }
-
-  }
 
 }
 

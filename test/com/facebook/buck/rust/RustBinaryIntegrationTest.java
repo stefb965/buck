@@ -82,6 +82,53 @@ public class RustBinaryIntegrationTest {
   }
 
   @Test
+  public void rustBinaryCompilerArgs() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_binary", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckCommand(
+                "run",
+                "--config",
+                "rust.rustc_flags=--this-is-a-bad-option",
+                "//:xyzzy")
+            .getStderr(),
+        Matchers.containsString("Unrecognized option: 'this-is-a-bad-option'."));
+  }
+
+  @Test
+  public void rustBinaryCompilerArgs2() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_binary", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckCommand(
+                "run",
+                "--config",
+                "rust.rustc_flags=--verbose --this-is-a-bad-option",
+                "//:xyzzy")
+            .getStderr(),
+        Matchers.containsString("Unrecognized option: 'this-is-a-bad-option'."));
+  }
+
+  @Test
+  public void rustBinaryRuleCompilerArgs() throws IOException, InterruptedException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this, "simple_binary", tmp);
+    workspace.setUp();
+
+    assertThat(
+        workspace
+            .runBuckCommand("run", "//:xyzzy_flags")
+            .getStderr(),
+        Matchers.containsString("Unrecognized option: 'this-is-a-bad-option'."));
+  }
+
+  @Test
   public void buildAfterChangeWorks() throws IOException, InterruptedException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "simple_binary", tmp);
@@ -91,32 +138,6 @@ public class RustBinaryIntegrationTest {
     workspace.writeContentsToPath(
         workspace.getFileContents("main.rs") + "// this is a comment",
         "main.rs");
-  }
-
-  @Test
-  public void binaryWithLibrary() throws IOException, InterruptedException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "binary_with_library", tmp);
-    workspace.setUp();
-
-    assertThat(
-        workspace.runBuckCommand("run", "//:hello").assertSuccess().getStdout(),
-        Matchers.allOf(
-            Matchers.containsString("Hello, world!"),
-            Matchers.containsString("I have a message to deliver to you")));
-  }
-
-  @Test
-  public void binaryWithAliasedLibrary() throws IOException, InterruptedException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "binary_with_library", tmp);
-    workspace.setUp();
-
-    assertThat(
-        workspace.runBuckCommand("run", "//:hello_alias").assertSuccess().getStdout(),
-        Matchers.allOf(
-            Matchers.containsString("Hello, world!"),
-            Matchers.containsString("I have a message to deliver to you")));
   }
 
   @Test

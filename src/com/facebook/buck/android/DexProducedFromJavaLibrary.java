@@ -22,16 +22,18 @@ import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasBuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.keys.AbiRule;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -44,7 +46,6 @@ import com.facebook.buck.zip.ZipScrubberStep;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -77,11 +78,9 @@ import javax.annotation.Nullable;
  * cannot write a meaningful "dummy .dex" if there are no class files to pass to {@code dx}.
  */
 public class DexProducedFromJavaLibrary extends AbstractBuildRule
-    implements AbiRule, HasBuildTarget, InitializableFromDisk<BuildOutput> {
+    implements SupportsInputBasedRuleKey, HasBuildTarget, InitializableFromDisk<BuildOutput> {
 
   private static final ObjectMapper MAPPER = ObjectMappers.newDefaultInstance();
-  private static final Function<String, HashCode> TO_HASHCODE =
-      HashCode::fromString;
 
   @VisibleForTesting
   static final String WEIGHT_ESTIMATE = "weight_estimate";
@@ -90,6 +89,8 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   @VisibleForTesting
   static final String REFERENCED_RESOURCES = "referenced_resources";
 
+  @AddToRuleKey
+  private final SourcePath javaLibrarySourcePath;
   private final JavaLibrary javaLibrary;
   private final BuildOutputInitializer<BuildOutput> buildOutputInitializer;
 
@@ -100,6 +101,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
       JavaLibrary javaLibrary) {
     super(params, resolver);
     this.javaLibrary = javaLibrary;
+    this.javaLibrarySourcePath = new BuildTargetSourcePath(javaLibrary.getBuildTarget());
     this.buildOutputInitializer = new BuildOutputInitializer<>(params.getBuildTarget(), this);
   }
 
@@ -124,7 +126,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
     final DxStep dx;
 
     if (hasClassesToDx) {
-      Path pathToOutputFile = javaLibrary.getPathToOutput();
+      Path pathToOutputFile = getResolver().getAbsolutePath(javaLibrarySourcePath);
       EstimateDexWeightStep estimate = new EstimateDexWeightStep(
           getProjectFilesystem(),
           pathToOutputFile);
@@ -198,7 +200,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
             onDiskBuildInfo.getValue(CLASSNAMES_TO_HASHES).get(),
             new TypeReference<Map<String, String>>() {
             });
-    Map<String, HashCode> classnamesToHashes = Maps.transformValues(map, TO_HASHCODE);
+    Map<String, HashCode> classnamesToHashes = Maps.transformValues(map, HashCode::fromString);
     Optional<ImmutableList<String>> referencedResources =
         onDiskBuildInfo.getValues(REFERENCED_RESOURCES);
     return new BuildOutput(
@@ -243,8 +245,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
   }
 
   ImmutableSortedMap<String, HashCode> getClassNames() {
-    // TODO(bolinfest): Assert that this Buildable has been built. Currently, there is no way to do
-    // that from a Buildable (but there is from an AbstractCachingBuildRule).
     return buildOutputInitializer.getBuildOutput().classnamesToHashes;
   }
 
@@ -254,15 +254,6 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRule
 
   Optional<ImmutableList<String>> getReferencedResources() {
     return buildOutputInitializer.getBuildOutput().referencedResources;
-  }
-
-  /**
-   * The only dep for this rule should be {@link #javaLibrary}. Therefore, the ABI key for the deps
-   * of this buildable is the hash of the {@code .class} files for {@link #javaLibrary}.
-   */
-  @Override
-  public Sha1HashCode getAbiKeyForDeps(DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
-    return computeAbiKey(javaLibrary.getClassNamesToHashes());
   }
 
   @VisibleForTesting

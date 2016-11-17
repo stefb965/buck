@@ -178,7 +178,7 @@ public class CxxGenruleDescription
   }
 
   @Override
-  protected <A extends AbstractGenruleDescription.Arg> MacroHandler getMacroHandler(
+  protected <A extends Arg> MacroHandler getMacroHandler(
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
@@ -229,7 +229,7 @@ public class CxxGenruleDescription
   }
 
   @Override
-  public <A extends AbstractGenruleDescription.Arg> BuildRule createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
@@ -355,10 +355,8 @@ public class CxxGenruleDescription
         ImmutableList<String> input)
         throws MacroException {
 
-      if (this.filter == Filter.PARAM && input.size() < 2) {
-        throw new MacroException("expected at leats 2 argument");
-      } else if (this.filter == Filter.NONE && input.size() < 1) {
-        throw new MacroException("expected at leats 1 argument");
+      if (this.filter == Filter.PARAM && input.size() < 1) {
+        throw new MacroException("expected at least 1 argument");
       }
 
       Iterator<String> itr = input.iterator();
@@ -369,13 +367,13 @@ public class CxxGenruleDescription
               Optional.empty();
 
       ImmutableList.Builder<BuildTarget> targets = ImmutableList.builder();
-      do {
+      while (itr.hasNext()) {
         targets.add(
             BuildTargetParser.INSTANCE.parse(
                 itr.next(),
                 BuildTargetPatternParser.forBaseName(target.getBaseName()),
                 cellNames));
-      } while (itr.hasNext());
+      }
 
       return new FilterAndTargets(filter, targets.build());
     }
@@ -742,8 +740,9 @@ public class CxxGenruleDescription
       SourcePathResolver pathResolver = new SourcePathResolver(resolver);
       ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
       deps.addAll(
-          FluentIterable.from(getLinkerArgs(resolver, rules, filter))
-              .transformAndConcat(arg -> arg.getDeps(pathResolver)));
+          getLinkerArgs(resolver, rules, filter).stream()
+              .flatMap(arg -> arg.getDeps(pathResolver).stream())
+              .iterator());
       if (depType == Linker.LinkableDepType.SHARED) {
         deps.add(requireSymlinkTree(resolver, rules));
       }

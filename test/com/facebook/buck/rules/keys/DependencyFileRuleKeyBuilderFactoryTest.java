@@ -18,18 +18,16 @@ package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.FakeDepFileBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.RuleKeyAppendable;
@@ -37,8 +35,6 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.shell.ExportFileBuilder;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -52,9 +48,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
-
-import javax.annotation.Nullable;
 
 public class DependencyFileRuleKeyBuilderFactoryTest {
 
@@ -66,11 +59,12 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path output = Paths.get("output");
 
-    BuildRule rule =
-        ExportFileBuilder.newExportFileBuilder(BuildTargetFactory.newInstance("//:rule"))
-            .setOut("out")
-            .setSrc(new PathSourcePath(filesystem, output))
-            .build(resolver, filesystem);
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+    BuildRuleParams params =
+        new FakeBuildRuleParamsBuilder(target)
+            .setProjectFilesystem(filesystem)
+            .build();
+    FakeDepFileBuildRule rule = new FakeDepFileBuildRule(params, pathResolver);
 
     // Build a rule key with a particular hash set for the output for the above rule.
     FakeFileHashCache hashCache = new FakeFileHashCache(
@@ -83,10 +77,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             0,
             hashCache,
             pathResolver)
-            .build(
-                rule,
-                Optional.empty(),
-                ImmutableList.of()).get().getFirst();
+            .build(rule, ImmutableList.of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
@@ -99,10 +90,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             0,
             hashCache,
             pathResolver)
-            .build(
-                rule,
-                Optional.empty(),
-                ImmutableList.of()).get().getFirst();
+            .build(rule, ImmutableList.of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -116,12 +104,11 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
     final Path output = Paths.get("output");
 
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:rule").build();
-    BuildRule rule =
-        new NoopBuildRule(params, pathResolver) {
-          @AddToRuleKey
-          RuleKeyAppendableWithInput input =
-              new RuleKeyAppendableWithInput(new PathSourcePath(filesystem, output));
-        };
+    FakeDepFileBuildRule rule = new FakeDepFileBuildRule(params, pathResolver) {
+      @AddToRuleKey
+      RuleKeyAppendableWithInput input =
+          new RuleKeyAppendableWithInput(new PathSourcePath(filesystem, output));
+    };
 
     // Build a rule key with a particular hash set for the output for the above rule.
     FakeFileHashCache hashCache = new FakeFileHashCache(
@@ -134,10 +121,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             0,
             hashCache,
             pathResolver)
-            .build(
-                rule,
-                Optional.empty(),
-                ImmutableList.of()).get().getFirst();
+            .build(rule, ImmutableList.of()).get().getFirst();
 
     // Now, build a rule key with a different hash for the output for the above rule.
     hashCache = new FakeFileHashCache(
@@ -150,10 +134,7 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             0,
             hashCache,
             pathResolver)
-            .build(
-                rule,
-                Optional.empty(),
-                ImmutableList.of()).get().getFirst();
+            .build(rule, ImmutableList.of()).get().getFirst();
 
     assertThat(inputKey1, Matchers.equalTo(inputKey2));
   }
@@ -168,19 +149,17 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
 
     BuildRuleParams depParams = new FakeBuildRuleParamsBuilder("//:dep").build();
     final BuildRule dep = new FakeDepFileBuildRule(depParams, pathResolver)
-        .setOutputPath(output);
+        .setOutputPath(output)
+        .setPossibleInputPaths(ImmutableSet.of());
     resolver.addToIndex(dep);
 
     final BuildTargetSourcePath inputSourcePath = new BuildTargetSourcePath(dep.getBuildTarget());
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:rule").build();
     FakeDepFileBuildRule rule = new FakeDepFileBuildRule(params, pathResolver) {
-      {
-        setPossibleInputPaths(ImmutableSet.of(inputSourcePath));
-      }
-
       @AddToRuleKey
       SourcePath input = inputSourcePath;
-    };
+    }
+    .setPossibleInputPaths(ImmutableSet.of(inputSourcePath));
 
     // Build a rule key with a particular hash set for the output for the above rule.
     FakeFileHashCache hashCache = new FakeFileHashCache(
@@ -225,10 +204,11 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
 
     BuildRuleParams params = new FakeBuildRuleParamsBuilder("//:rule").build();
     final PathSourcePath inputSourcePath = new PathSourcePath(filesystem, localInput);
-    BuildRule rule = new FakeDepFileBuildRule(params, pathResolver) {
+    FakeDepFileBuildRule rule = new FakeDepFileBuildRule(params, pathResolver) {
       @AddToRuleKey
       SourcePath input = inputSourcePath;
-    };
+    }
+    .setPossibleInputPaths(ImmutableSet.of());
 
     // Build a rule key with a particular hash set for the localInput for the above rule.
     FakeFileHashCache hashCache = new FakeFileHashCache(
@@ -261,59 +241,6 @@ public class DependencyFileRuleKeyBuilderFactoryTest {
             .getFirst();
 
     assertThat(manifestKey1, Matchers.not(Matchers.equalTo(manifestKey2)));
-  }
-
-  private static class FakeDepFileBuildRule
-      extends AbstractBuildRule
-      implements SupportsDependencyFileRuleKey {
-
-    private Path outputPath;
-    private ImmutableSet<SourcePath> possibleInputPaths = ImmutableSet.of();
-    private ImmutableList<SourcePath> actualInputPaths = ImmutableList.of();
-
-    protected FakeDepFileBuildRule(
-        BuildRuleParams buildRuleParams,
-        SourcePathResolver resolver) {
-      super(buildRuleParams, resolver);
-    }
-
-    public FakeDepFileBuildRule setOutputPath(Path outputPath) {
-      this.outputPath = outputPath;
-      return this;
-    }
-
-    public FakeDepFileBuildRule setPossibleInputPaths(
-        ImmutableSet<SourcePath> possibleInputPaths) {
-      this.possibleInputPaths = possibleInputPaths;
-      return this;
-    }
-
-    @Override
-    public boolean useDependencyFileRuleKeys() {
-      return true;
-    }
-
-    @Override
-    public Optional<ImmutableSet<SourcePath>> getPossibleInputSourcePaths() {
-      return Optional.of(possibleInputPaths);
-    }
-
-    @Override
-    public ImmutableList<SourcePath> getInputsAfterBuildingLocally() throws IOException {
-      return actualInputPaths;
-    }
-
-    @Override
-    public ImmutableList<Step> getBuildSteps(
-        BuildContext context, BuildableContext buildableContext) {
-      return null;
-    }
-
-    @Nullable
-    @Override
-    public Path getPathToOutput() {
-      return outputPath;
-    }
   }
 
   private static class RuleKeyAppendableWithInput implements RuleKeyAppendable {

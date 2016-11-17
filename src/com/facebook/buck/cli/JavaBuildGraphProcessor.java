@@ -175,7 +175,6 @@ final class JavaBuildGraphProcessor {
               .setActionGraph(new ActionGraph(ImmutableList.of()))
               .setJavaPackageFinder(executionContext.getJavaPackageFinder())
               .setEventBus(eventBus)
-              .setShouldReportAbsolutePaths(false)
               .build())
           .setClock(params.getClock())
           .setArtifactCache(params.getArtifactCache())

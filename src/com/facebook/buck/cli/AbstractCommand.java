@@ -313,4 +313,9 @@ public abstract class AbstractCommand implements Command {
     return builder.build();
   }
 
+  @Override
+  public boolean isSourceControlStatsGatheringEnabled() {
+    return false;
+  }
+
 }

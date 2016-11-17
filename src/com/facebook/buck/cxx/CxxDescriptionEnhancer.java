@@ -56,7 +56,6 @@ import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -73,6 +72,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.StreamSupport;
 
 public class CxxDescriptionEnhancer {
 
@@ -138,9 +138,10 @@ public class CxxDescriptionEnhancer {
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
       HeaderVisibility headerVisibility) {
+    BuildRuleParams untypedParams = CxxLibraryDescription.getUntypedParams(params);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
-            params.getBuildTarget(),
+            untypedParams.getBuildTarget(),
             cxxPlatform.getFlavor(),
             headerVisibility);
 
@@ -152,7 +153,7 @@ public class CxxDescriptionEnhancer {
     }
 
     HeaderSymlinkTree symlinkTree = createHeaderSymlinkTree(
-        params,
+        untypedParams,
         ruleResolver,
         pathResolver,
         cxxPlatform,
@@ -331,7 +332,7 @@ public class CxxDescriptionEnhancer {
             buildTarget,
             "srcs",
             sourcesWithFlags,
-            SourceWithFlags.TO_SOURCE_PATH));
+            SourceWithFlags::getSourcePath));
   }
 
   public static ImmutableList<CxxPreprocessorInput> collectCxxPreprocessorInput(
@@ -477,9 +478,10 @@ public class CxxDescriptionEnhancer {
         Joiner.on('_').join(
             ImmutableList.builder()
                 .addAll(
-                    FluentIterable.from(target.getBasePath())
-                        .transform(Object::toString)
-                        .filter(Predicates.not(""::equals)))
+                    StreamSupport.stream(target.getBasePath().spliterator(), false)
+                        .map(Object::toString)
+                        .filter(x -> !x.isEmpty())
+                        .iterator())
                 .add(
                     target
                         .withoutFlavors(ImmutableSet.of(platform.getFlavor()))
@@ -657,13 +659,13 @@ public class CxxDescriptionEnhancer {
             platformLinkerFlags,
             cxxPlatform);
     argsBuilder.addAll(
-        FluentIterable.from(resolvedLinkerFlags)
-            .transform(
-                MacroArg.toMacroArgFunction(
-                    MACRO_HANDLER,
-                    params.getBuildTarget(),
-                    params.getCellRoots(),
-                    resolver)));
+        resolvedLinkerFlags.stream()
+            .map(MacroArg.toMacroArgFunction(
+                MACRO_HANDLER,
+                params.getBuildTarget(),
+                params.getCellRoots(),
+                resolver)::apply)
+            .iterator());
 
     // Special handling for dynamically linked binaries.
     if (linkStyle == Linker.LinkableDepType.SHARED) {

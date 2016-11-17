@@ -22,11 +22,11 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
+import com.facebook.buck.io.WatchmanDiagnosticEvent;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.WatchmanDiagnostic;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.Description;
@@ -40,6 +40,7 @@ import com.facebook.buck.util.concurrent.AssertScopeExclusiveAccess;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -54,10 +55,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 
@@ -89,7 +92,6 @@ public class ProjectBuildFileParser implements AutoCloseable {
   private final BserSerializer bserSerializer;
   private final AssertScopeExclusiveAccess assertSingleThreadedParsing;
   private final boolean ignoreBuckAutodepsFiles;
-  private final WatchmanDiagnosticCache watchmanDiagnosticCache;
 
   private boolean isInitialized;
   private boolean isClosed;
@@ -106,8 +108,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
       BuckEventBus buckEventBus,
       ProjectFilesystem filesystem,
       ProcessExecutor processExecutor,
-      boolean ignoreBuckAutodepsFiles,
-      WatchmanDiagnosticCache watchmanDiagnosticCache) {
+      boolean ignoreBuckAutodepsFiles) {
     this.buckPythonProgram = null;
     this.options = options;
     this.marshaller = marshaller;
@@ -119,7 +120,6 @@ public class ProjectBuildFileParser implements AutoCloseable {
     this.bserSerializer = new BserSerializer();
     this.assertSingleThreadedParsing = new AssertScopeExclusiveAccess();
     this.ignoreBuckAutodepsFiles = ignoreBuckAutodepsFiles;
-    this.watchmanDiagnosticCache = watchmanDiagnosticCache;
 
     this.rawConfigJson =
         Suppliers.memoize(
@@ -375,12 +375,21 @@ public class ProjectBuildFileParser implements AutoCloseable {
     ImmutableList<Map<String, Object>> values = ImmutableList.of();
     String profile = "";
     try (AssertScopeExclusiveAccess.Scope scope = assertSingleThreadedParsing.scope()) {
-      ProjectWatch projectWatch = options.getWatchman().getProjectWatch();
+      Path cellPath = options.getProjectRoot().toAbsolutePath();
+      String watchRoot = cellPath.toString();
+      String projectPrefix = "";
+      if (options.getWatchman().getProjectWatches().containsKey(cellPath)) {
+        ProjectWatch projectWatch = options.getWatchman().getProjectWatches().get(cellPath);
+        watchRoot = projectWatch.getWatchRoot();
+        if (projectWatch.getProjectPrefix().isPresent()) {
+          projectPrefix = projectWatch.getProjectPrefix().get();
+        }
+      }
       bserSerializer.serializeToStream(
           ImmutableMap.of(
               "buildFile", buildFile.toString(),
-              "watchRoot", projectWatch.getWatchRoot(),
-              "projectPrefix", projectWatch.getProjectPrefix().orElse("")),
+              "watchRoot", watchRoot,
+              "projectPrefix", projectPrefix),
           buckPyStdinWriter);
       buckPyStdinWriter.flush();
 
@@ -394,14 +403,15 @@ public class ProjectBuildFileParser implements AutoCloseable {
         throw new IOException("Parser exited unexpectedly", e);
       }
       BuildFilePythonResult resultObject = handleDeserializedValue(deserializedValue);
+      Path buckPyPath = getPathToBuckPy(options.getDescriptions());
       handleDiagnostics(
           buildFile,
+          buckPyPath.getParent(),
           resultObject.getDiagnostics(),
-          buckEventBus,
-          watchmanDiagnosticCache);
+          buckEventBus);
       values = resultObject.getValues();
       LOG.verbose("Got rules: %s", values);
-      LOG.debug("Parsed %d rules from process", values.size());
+      LOG.debug("Parsed %d rules from %s", values.size(), buildFile);
       profile = resultObject.getProfile();
       if (profile != null) {
         LOG.debug("Profile result: %s", profile);
@@ -446,9 +456,9 @@ public class ProjectBuildFileParser implements AutoCloseable {
 
   private static void handleDiagnostics(
       Path buildFile,
+      Path buckPyDir,
       List<Map<String, String>> diagnosticsList,
-      BuckEventBus buckEventBus,
-      WatchmanDiagnosticCache watchmanDiagnosticCache) throws IOException, BuildFileParseException {
+      BuckEventBus buckEventBus) throws IOException, BuildFileParseException {
     for (Map<String, String> diagnostic : diagnosticsList) {
       String level = diagnostic.get("level");
       String message = diagnostic.get("message");
@@ -462,7 +472,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
                 source));
       }
       if (source != null && source.equals("watchman")) {
-        handleWatchmanDiagnostic(buildFile, level, message, buckEventBus, watchmanDiagnosticCache);
+        handleWatchmanDiagnostic(buildFile, level, message, buckEventBus);
       } else {
         String header;
         if (source != null) {
@@ -489,9 +499,10 @@ public class ProjectBuildFileParser implements AutoCloseable {
             break;
           case "fatal":
             LOG.warn("Fatal error raised by BUCK file parser for file %s: %s", header, message);
+            Object exception = diagnostic.get("exception");
             throw BuildFileParseException.createForBuildFileParseError(
                 buildFile,
-                new IOException(message));
+                createParseException(buildFile, buckPyDir, message, exception));
           default:
             LOG.warn(
                 "Unknown diagnostic (level %s) raised by BUCK file parser for build file %s: %s",
@@ -504,12 +515,131 @@ public class ProjectBuildFileParser implements AutoCloseable {
     }
   }
 
+  private static Optional<BuildFileSyntaxError> parseSyntaxError(Map<String, Object> exceptionMap) {
+    String type = (String) exceptionMap.get("type");
+    if (type.equals("SyntaxError")) {
+      return Optional.of(
+          BuildFileSyntaxError.of(
+              Paths.get((String) exceptionMap.get("filename")),
+              (Number) exceptionMap.get("lineno"),
+              (Number) exceptionMap.get("offset"),
+              (String) exceptionMap.get("text")));
+    } else {
+      return Optional.empty();
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static ImmutableList<BuildFileParseExceptionStackTraceEntry> parseStackTrace(
+      Map<String, Object> exceptionMap
+  ) {
+    List<Map<String, Object>> traceback =
+        (List<Map<String, Object>>) exceptionMap.get("traceback");
+    ImmutableList.Builder<BuildFileParseExceptionStackTraceEntry> stackTraceBuilder =
+        ImmutableList.builder();
+    for (Map<String, Object> tracebackItem : traceback) {
+      stackTraceBuilder.add(
+          BuildFileParseExceptionStackTraceEntry.of(
+              Paths.get((String) tracebackItem.get("filename")),
+              (Number) tracebackItem.get("line_number"),
+              (String) tracebackItem.get("function_name"),
+              (String) tracebackItem.get("text")));
+    }
+    return stackTraceBuilder.build();
+  }
+
+  @VisibleForTesting
+  static BuildFileParseExceptionData parseExceptionData(
+      Map<String, Object> exceptionMap) {
+    return BuildFileParseExceptionData.of(
+        (String) exceptionMap.get("type"),
+        (String) exceptionMap.get("value"),
+        parseSyntaxError(exceptionMap),
+        parseStackTrace(exceptionMap)
+    );
+  }
+
+  private static String formatStackTrace(
+      Path buckPyDir,
+      ImmutableList<BuildFileParseExceptionStackTraceEntry> stackTrace
+  ) {
+    StringBuilder formattedTraceback = new StringBuilder();
+    for (BuildFileParseExceptionStackTraceEntry entry : stackTrace) {
+      if (entry.getFileName().getParent().equals(buckPyDir)) {
+        // Skip stack trace entries for buck.py itself
+        continue;
+      }
+      String location;
+      if (entry.getFunctionName().equals("<module>")) {
+        location = "";
+      } else {
+        location = String.format(", in %s", entry.getFunctionName());
+      }
+      formattedTraceback.append(
+          String.format(
+              "  File \"%s\", line %s%s\n    %s\n",
+              entry.getFileName(),
+              entry.getLineNumber(),
+              location,
+              entry.getText()));
+    }
+    return formattedTraceback.toString();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static IOException createParseException(
+      Path buildFile,
+      Path buckPyDir,
+      String message,
+      @Nullable Object exception) {
+    if (!(exception instanceof Map<?, ?>)) {
+      return new IOException(message);
+    } else {
+      Map<String, Object> exceptionMap = (Map<String, Object>) exception;
+      BuildFileParseExceptionData exceptionData = parseExceptionData(exceptionMap);
+      LOG.debug("Received exception from buck.py parser: %s", exceptionData);
+      Optional<BuildFileSyntaxError> syntaxErrorOpt = exceptionData.getSyntaxError();
+      if (syntaxErrorOpt.isPresent()) {
+        BuildFileSyntaxError syntaxError = syntaxErrorOpt.get();
+        String prefix;
+        if (buildFile.equals(syntaxError.getFileName())) {
+          // BuildFileParseException will include the filename
+          prefix = String.format(
+              "Syntax error on line %s",
+              syntaxError.getLineNumber());
+        } else {
+          // Parse error was in some other file included by the build file
+          prefix = String.format(
+              "Syntax error in %s\nLine %s",
+              syntaxError.getFileName(),
+              syntaxError.getLineNumber());
+        }
+        return new IOException(
+            String.format(
+                "%s, column %s:\n%s%s",
+                prefix,
+                syntaxError.getOffset(),
+                syntaxError.getText(),
+                Strings.padStart("^", syntaxError.getOffset().intValue(), ' ')));
+      } else {
+        String formattedStackTrace = formatStackTrace(
+            buckPyDir,
+            exceptionData.getStackTrace());
+        return new IOException(
+            String.format(
+                "%s: %s\nCall stack:\n%s",
+                exceptionData.getType(),
+                exceptionData.getValue(),
+                formattedStackTrace));
+      }
+    }
+  }
+
   private static void handleWatchmanDiagnostic(
       Path buildFile,
       String level,
       String message,
-      BuckEventBus buckEventBus,
-      WatchmanDiagnosticCache watchmanDiagnosticCache) {
+      BuckEventBus buckEventBus) throws IOException {
     WatchmanDiagnostic.Level watchmanDiagnosticLevel;
     switch (level) {
       // Watchman itself doesn't issue debug or info, but in case
@@ -527,6 +657,12 @@ public class ProjectBuildFileParser implements AutoCloseable {
       case "error":
         watchmanDiagnosticLevel = WatchmanDiagnostic.Level.ERROR;
         break;
+      case "fatal":
+        throw new IOException(
+            String.format(
+                "%s: %s",
+                buildFile,
+                message));
       default:
         throw new RuntimeException(
             String.format(
@@ -537,23 +673,7 @@ public class ProjectBuildFileParser implements AutoCloseable {
     WatchmanDiagnostic watchmanDiagnostic = WatchmanDiagnostic.of(
         watchmanDiagnosticLevel,
         message);
-    switch (watchmanDiagnosticCache.addDiagnostic(watchmanDiagnostic)) {
-      case NEW_DIAGNOSTIC:
-        switch (watchmanDiagnosticLevel) {
-          case WARNING:
-            buckEventBus.post(
-                ConsoleEvent.warning("Watchman raised a warning: %s", message));
-            break;
-          case ERROR:
-            buckEventBus.post(
-                ConsoleEvent.severe("Watchman raised an error: %s", message));
-            break;
-        }
-        break;
-      case DUPLICATE_DIAGNOSTIC:
-        // Nothing to do.
-        break;
-    }
+    buckEventBus.post(new WatchmanDiagnosticEvent(watchmanDiagnostic));
   }
 
   @Override

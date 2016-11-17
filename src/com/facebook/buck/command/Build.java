@@ -39,6 +39,7 @@ import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
@@ -78,6 +79,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.StreamSupport;
 
@@ -108,6 +110,7 @@ public class Build implements Closeable {
       Console console,
       long defaultTestTimeoutMillis,
       boolean isCodeCoverageEnabled,
+      boolean isInclNoLocationClassesEnabled,
       boolean isDebugEnabled,
       boolean shouldReportAbsolutePaths,
       BuildStamper stamper,
@@ -119,6 +122,7 @@ public class Build implements Closeable {
       ConcurrencyLimit concurrencyLimit,
       Optional<AdbOptions> adbOptions,
       Optional<TargetDeviceOptions> targetDeviceOptions,
+      Optional<ConcurrentMap<String, WorkerProcessPool>> persistentWorkerPools,
       Map<ExecutorPool, ListeningExecutorService> executors) {
     this.actionGraph = actionGraph;
     this.ruleResolver = ruleResolver;
@@ -129,6 +133,7 @@ public class Build implements Closeable {
         .setTargetDevice(targetDevice)
         .setDefaultTestTimeoutMillis(defaultTestTimeoutMillis)
         .setCodeCoverageEnabled(isCodeCoverageEnabled)
+        .setInclNoLocationClassesEnabled(isInclNoLocationClassesEnabled)
         .setDebugEnabled(isDebugEnabled)
         .setShouldReportAbsolutePaths(shouldReportAbsolutePaths)
         .setBuckEventBus(eventBus)
@@ -138,6 +143,7 @@ public class Build implements Closeable {
         .setObjectMapper(objectMapper)
         .setConcurrencyLimit(concurrencyLimit)
         .setAdbOptions(adbOptions)
+        .setPersistentWorkerPools(persistentWorkerPools)
         .setTargetDeviceOptions(targetDeviceOptions)
         .setExecutors(executors)
         .setBuildStamper(stamper)
@@ -147,10 +153,6 @@ public class Build implements Closeable {
     this.javaPackageFinder = javaPackageFinder;
     this.clock = clock;
     this.objectMapper = objectMapper;
-  }
-
-  public ActionGraph getActionGraph() {
-    return actionGraph;
   }
 
   public BuildRuleResolver getRuleResolver() {
@@ -229,7 +231,6 @@ public class Build implements Closeable {
             .setJavaPackageFinder(javaPackageFinder)
             .setEventBus(executionContext.getBuckEventBus())
             .setAndroidPlatformTargetSupplier(executionContext.getAndroidPlatformTargetSupplier())
-            .setShouldReportAbsolutePaths(executionContext.shouldReportAbsolutePaths())
             .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)

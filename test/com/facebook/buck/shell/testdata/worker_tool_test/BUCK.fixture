@@ -5,13 +5,26 @@ sh_binary(
 
 worker_tool(
   name = 'worker1',
-  args = '--num-jobs 2',
+  args = ['--num-jobs 2'],
   exe = ':external_tool',
 )
 
 worker_tool(
   name = 'worker2',
-  args = '--num-jobs 1',
+  args = ['--num-jobs', '1'],
+  exe = ':external_tool',
+)
+
+worker_tool(
+  name = 'worker3',
+  args = ['--num-jobs 2'],
+  exe = ':concurrent_tool',
+  persistent = True,
+)
+
+worker_tool(
+  name = 'worker_crash_on_start',
+  args = ['--num-jobs 2', '--loc /doesnotexsist'],
   exe = ':external_tool',
 )
 
@@ -59,4 +72,24 @@ genrule(
   srcs = [],
   out = 'output.txt',
   cmd = '$(worker :concurrent_worker) $OUT',
+)
+
+genrule(
+  name = 'test6',
+  srcs = [],
+  out = 'output.txt',
+  cmd = '$(worker :worker3) $OUT',
+)
+
+genrule(
+  name = 'test7',
+  srcs = [],
+  out = 'output.txt',
+  cmd = '$(worker :worker3) $OUT',
+)
+genrule(
+  name = 'test10',
+  srcs = [],
+  out = 'output.txt',
+  cmd = '$(worker :worker_crash_on_start) $OUT',
 )

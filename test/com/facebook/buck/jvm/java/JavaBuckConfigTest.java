@@ -66,41 +66,73 @@ public class JavaBuckConfigTest {
   @Test
   public void whenJavaIsNotSetThenJavaFromPathIsReturned() throws IOException {
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
-    JavaOptions options = config.getDefaultJavaOptions();
-    assertEquals(Optional.empty(), options.getJavaPath());
-    assertEquals("java", options.getJavaRuntimeLauncher().getCommand());
+    JavaOptions javaOptions = config.getDefaultJavaOptions();
+    assertEquals(Optional.empty(), javaOptions.getJavaPath());
+    assertEquals("java", javaOptions.getJavaRuntimeLauncher().getCommand());
+
+    JavaOptions javaForTestsOptions = config.getDefaultJavaOptionsForTests();
+    assertEquals(Optional.empty(), javaForTestsOptions.getJavaPath());
   }
 
   @Test
   public void whenJavaExistsAndIsExecutableThenItIsReturned() throws IOException {
     Path java = temporaryFolder.newExecutableFile();
+    Path javaForTests = temporaryFolder.newExecutableFile();
     String javaCommand = java.toString();
-    JavaBuckConfig config = new JavaBuckConfig(
+    String javaForTestsCommand = javaForTests.toString();
+    JavaBuckConfig config =
         FakeBuckConfig
             .builder()
             .setFilesystem(defaultFilesystem)
-            .setSections(ImmutableMap.of("tools", ImmutableMap.of("java", javaCommand)))
-            .build());
+            .setSections(
+                ImmutableMap.of(
+                    "tools",
+                    ImmutableMap.of(
+                        "java", javaCommand,
+                        "java_for_tests", javaForTestsCommand)))
+            .build()
+            .getView(JavaBuckConfig.class);
 
-    JavaOptions options = config.getDefaultJavaOptions();
-    assertEquals(Optional.of(java), options.getJavaPath());
-    assertEquals(javaCommand, options.getJavaRuntimeLauncher().getCommand());
+    JavaOptions javaOptions = config.getDefaultJavaOptions();
+    assertEquals(Optional.of(java), javaOptions.getJavaPath());
+    assertEquals(javaCommand, javaOptions.getJavaRuntimeLauncher().getCommand());
+
+    JavaOptions javaForTestsOptions = config.getDefaultJavaOptionsForTests();
+    assertEquals(Optional.of(javaForTests), javaForTestsOptions.getJavaPath());
+    assertEquals(javaForTestsCommand, javaForTestsOptions.getJavaRuntimeLauncher().getCommand());
   }
 
   @Test
   public void whenJavaExistsAndIsRelativePathThenItsAbsolutePathIsReturned() throws IOException {
     Path java = temporaryFolder.newExecutableFile();
     String javaFilename = java.getFileName().toString();
-    JavaBuckConfig config = new JavaBuckConfig(
-        FakeBuckConfig
-            .builder()
-            .setFilesystem(defaultFilesystem)
-            .setSections(ImmutableMap.of("tools", ImmutableMap.of("java", javaFilename)))
-            .build());
+    JavaBuckConfig config = FakeBuckConfig
+        .builder()
+        .setFilesystem(defaultFilesystem)
+        .setSections(ImmutableMap.of("tools", ImmutableMap.of("java", javaFilename)))
+        .build()
+        .getView(JavaBuckConfig.class);
 
     JavaOptions options = config.getDefaultJavaOptions();
     assertEquals(Optional.of(java), options.getJavaPath());
     assertEquals(java.toString(), options.getJavaRuntimeLauncher().getCommand());
+  }
+
+  @Test
+  public void whenJavaForTestsIsNotSetThenJavaIsReturned() throws IOException {
+    Path java = temporaryFolder.newExecutableFile();
+    String javaCommand = java.toString();
+    JavaBuckConfig config =
+        FakeBuckConfig
+            .builder()
+            .setFilesystem(defaultFilesystem)
+            .setSections(ImmutableMap.of("tools", ImmutableMap.of("java", javaCommand)))
+            .build()
+            .getView(JavaBuckConfig.class);
+
+    JavaOptions options = config.getDefaultJavaOptionsForTests();
+    assertEquals(Optional.of(java), options.getJavaPath());
+    assertEquals(javaCommand, options.getJavaRuntimeLauncher().getCommand());
   }
 
   @Test
@@ -227,7 +259,7 @@ public class JavaBuckConfigTest {
   public void whenJavacIsNotSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithJsr199Javac()
       throws IOException, NoSuchBuildTargetException, InterruptedException {
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
-    JavaBuckConfig javaConfig = new JavaBuckConfig(buckConfig);
+    JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
     JavacOptions javacOptions = javaConfig.getDefaultJavacOptions();
 
     Javac javac = javacOptions.getJavac();
@@ -246,7 +278,7 @@ public class JavaBuckConfigTest {
         .setFilesystem(defaultFilesystem)
         .setSections(sections)
         .build();
-    JavaBuckConfig javaConfig = new JavaBuckConfig(buckConfig);
+    JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
     JavacOptions javacOptions = javaConfig.getDefaultJavacOptions();
 
     assertEquals(javac, ((ExternalJavac) javacOptions.getJavac()).getShortName());
@@ -298,6 +330,6 @@ public class JavaBuckConfigTest {
         Architecture.detect(),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()));
-    return new JavaBuckConfig(raw);
+    return raw.getView(JavaBuckConfig.class);
   }
 }

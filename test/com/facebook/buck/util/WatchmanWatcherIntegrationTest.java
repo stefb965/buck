@@ -24,7 +24,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.PathOrGlobMatcher;
 import com.facebook.buck.io.ProjectWatch;
 import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
+import com.facebook.buck.io.WatchmanCursor;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.timing.DefaultClock;
@@ -69,7 +69,7 @@ public class WatchmanWatcherIntegrationTest {
 
     watchman =
         Watchman.build(
-            tmp.getRoot(),
+            ImmutableSet.of(tmp.getRoot()),
             ImmutableMap.copyOf(System.getenv()),
             new Console(Verbosity.ALL, System.out, System.err, Ansi.withoutTty()),
             new DefaultClock(),
@@ -93,7 +93,6 @@ public class WatchmanWatcherIntegrationTest {
     // Verify we don't get an event for the path.
     watcher.postEvents(
         new BuckEventBus(new FakeClock(0), new BuildId()),
-        new WatchmanDiagnosticCache(),
         WatchmanWatcher.FreshInstanceAction.NONE);
     assertThat(watchmanEventCollector.getEvents(), Matchers.empty());
   }
@@ -110,7 +109,6 @@ public class WatchmanWatcherIntegrationTest {
     // Verify we still get an event for the created path.
     watcher.postEvents(
         new BuckEventBus(new FakeClock(0), new BuildId()),
-        new WatchmanDiagnosticCache(),
         WatchmanWatcher.FreshInstanceAction.NONE);
     ImmutableList<WatchEvent<?>> events = watchmanEventCollector.getEvents();
     assertThat(events.size(), Matchers.equalTo(1));
@@ -127,16 +125,22 @@ public class WatchmanWatcherIntegrationTest {
 
     WatchmanWatcher watcher =
         new WatchmanWatcher(
-            ProjectWatch.of(tmp.getRoot().toString(), Optional.empty()),
+            ImmutableMap.of(
+                tmp.getRoot(),
+                ProjectWatch.of(tmp.getRoot().toString(), Optional.empty())),
             eventBus,
             ImmutableSet.copyOf(ignorePaths),
             watchman,
-            UUID.randomUUID());
+            ImmutableMap.of(
+                tmp.getRoot(),
+                new WatchmanCursor(
+                    new StringBuilder("n:buckd")
+                        .append(UUID.randomUUID())
+                        .toString())));
 
     // Clear out the initial overflow event.
     watcher.postEvents(
         new BuckEventBus(new FakeClock(0), new BuildId()),
-        new WatchmanDiagnosticCache(),
         WatchmanWatcher.FreshInstanceAction.NONE);
     watchmanEventCollector.clear();
 

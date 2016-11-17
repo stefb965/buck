@@ -18,7 +18,6 @@ package com.facebook.buck.json;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -38,8 +37,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
       ProjectFilesystem filesystem,
-      boolean ignoreBuckAutodepsFiles,
-      WatchmanDiagnosticCache watchmanDiagnosticCache) {
+      boolean ignoreBuckAutodepsFiles) {
     return new ProjectBuildFileParser(
         options,
         marshaller,
@@ -47,7 +45,6 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
         buckEventBus,
         filesystem,
         new DefaultProcessExecutor(console),
-        ignoreBuckAutodepsFiles,
-        watchmanDiagnosticCache);
+        ignoreBuckAutodepsFiles);
   }
 }

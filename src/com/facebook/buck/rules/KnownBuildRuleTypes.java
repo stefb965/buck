@@ -87,6 +87,7 @@ import com.facebook.buck.go.GoBinaryDescription;
 import com.facebook.buck.go.GoBuckConfig;
 import com.facebook.buck.go.GoLibraryDescription;
 import com.facebook.buck.go.GoTestDescription;
+import com.facebook.buck.graphql.GraphQlLibraryDescription;
 import com.facebook.buck.groups.TargetGroupDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideBuckConfig;
@@ -528,9 +529,10 @@ public class KnownBuildRuleTypes {
 
     Builder builder = builder();
 
-    JavaBuckConfig javaConfig = new JavaBuckConfig(config);
+    JavaBuckConfig javaConfig = config.getView(JavaBuckConfig.class);
     JavacOptions defaultJavacOptions = javaConfig.getDefaultJavacOptions();
     JavaOptions defaultJavaOptions = javaConfig.getDefaultJavaOptions();
+    JavaOptions defaultJavaOptionsForTests = javaConfig.getDefaultJavaOptionsForTests();
 
     KotlinBuckConfig kotlinBuckConfig = new KotlinBuckConfig(config);
 
@@ -703,6 +705,7 @@ public class KnownBuildRuleTypes {
         new GoTestDescription(
             goBuckConfig,
             defaultTestRuleTimeoutMs));
+    builder.register(new GraphQlLibraryDescription());
     GroovyBuckConfig groovyBuckConfig = new GroovyBuckConfig(config);
     builder.register(
         new GroovyLibraryDescription(
@@ -711,7 +714,7 @@ public class KnownBuildRuleTypes {
     builder.register(
         new GroovyTestDescription(
             groovyBuckConfig,
-            defaultJavaOptions,
+            defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs)
     );
@@ -730,7 +733,7 @@ public class KnownBuildRuleTypes {
     builder.register(new JavaLibraryDescription(defaultJavacOptions));
     builder.register(
         new JavaTestDescription(
-            defaultJavaOptions,
+            defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
@@ -740,7 +743,7 @@ public class KnownBuildRuleTypes {
     builder.register(
         new KotlinTestDescription(
             kotlinBuckConfig,
-            defaultJavaOptions,
+            defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs));
     builder.register(
@@ -776,17 +779,17 @@ public class KnownBuildRuleTypes {
             cxxPlatforms));
     builder.register(new RemoteFileDescription(downloader));
     builder.register(new RobolectricTestDescription(
-            defaultJavaOptions,
+            defaultJavaOptionsForTests,
             defaultJavacOptions,
             defaultTestRuleTimeoutMs,
             defaultCxxPlatform));
     builder.register(new RustBinaryDescription(rustBuckConfig, defaultCxxPlatform));
-    builder.register(new RustLibraryDescription(rustBuckConfig));
+    builder.register(new RustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new ScalaLibraryDescription(scalaConfig));
     builder.register(new ScalaTestDescription(
         scalaConfig,
-        defaultJavaOptions,
+        defaultJavaOptionsForTests,
         defaultTestRuleTimeoutMs,
         defaultCxxPlatform));
     builder.register(new ShBinaryDescription());
@@ -808,7 +811,7 @@ public class KnownBuildRuleTypes {
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.NORMAL),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.TWISTED),
                 new ThriftPythonEnhancer(thriftBuckConfig, ThriftPythonEnhancer.Type.ASYNCIO))));
-    builder.register(new WorkerToolDescription());
+    builder.register(new WorkerToolDescription(config));
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());

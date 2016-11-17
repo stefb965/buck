@@ -37,12 +37,9 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -51,6 +48,7 @@ import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 
 
@@ -174,6 +172,7 @@ public class JavaTestDescription implements
               args.vmArgs,
               cxxLibraryEnhancement.nativeLibsEnvironment,
               args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+              args.testCaseTimeoutMs,
               args.env,
               args.getRunTestSeparately(),
               args.getForkMode(),
@@ -188,28 +187,6 @@ public class JavaTestDescription implements
             new BuildTargetSourcePath(testsLibrary.getBuildTarget())));
 
     return javaTest;
-  }
-
-  public static ImmutableSet<BuildRule> validateAndGetSourcesUnderTest(
-      ImmutableSet<BuildTarget> sourceUnderTestTargets,
-      BuildTarget owner,
-      BuildRuleResolver resolver) {
-    ImmutableSet.Builder<BuildRule> sourceUnderTest = ImmutableSet.builder();
-    for (BuildTarget target : sourceUnderTestTargets) {
-      BuildRule rule = resolver.getRule(target);
-      if (!(rule instanceof JavaLibrary)) {
-        // In this case, the source under test specified in the build file was not a Java library
-        // rule. Since EMMA requires the sources to be in Java, we will throw this exception and
-        // not continue with the tests.
-        throw new HumanReadableException(
-            "Specified source under test for %s is not a Java library: %s (%s).",
-            owner,
-            rule.getFullyQualifiedName(),
-            rule.getType());
-      }
-      sourceUnderTest.add(rule);
-    }
-    return sourceUnderTest.build();
   }
 
   @Override
@@ -238,6 +215,7 @@ public class JavaTestDescription implements
     public Optional<Boolean> useCxxLibraries;
     public ImmutableSet<BuildTarget> cxxLibraryWhitelist = ImmutableSet.of();
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<Long> testCaseTimeoutMs;
     public ImmutableMap<String, String> env = ImmutableMap.of();
 
     public boolean getRunTestSeparately() {
@@ -275,9 +253,10 @@ public class JavaTestDescription implements
             // (2) They affect the JavaTest's RuleKey, so changing them will invalidate
             // the test results cache.
             .addAll(
-                FluentIterable.from(
-                    pathResolver.filterBuildRuleInputs(nativeLibsSymlinkTree.getLinks().values()))
-                    .filter(shouldInclude))
+                pathResolver.filterBuildRuleInputs(nativeLibsSymlinkTree.getLinks().values())
+                    .stream()
+                    .filter(shouldInclude)
+                    .iterator())
             .build());
         nativeLibsEnvironment =
             ImmutableMap.of(

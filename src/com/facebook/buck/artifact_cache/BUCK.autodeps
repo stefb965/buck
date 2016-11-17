@@ -1,7 +1,6 @@
 {
   "artifact_cache" : {
     "deps" : [
-      "//src/com/facebook/buck/util:util",
       "//third-party/java/immutables:processor"
     ],
     "exported_deps" : [
@@ -56,8 +55,7 @@
       "//src/com/facebook/buck/counters:counters",
       "//src/com/facebook/buck/log:api",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:io",
-      "//src/com/facebook/buck/util:util"
+      "//src/com/facebook/buck/util:io"
     ],
     "exported_deps" : [
       "//src-gen:thrift",

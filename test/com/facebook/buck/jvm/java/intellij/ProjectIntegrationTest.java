@@ -599,13 +599,23 @@ public class ProjectIntegrationTest {
   }
 
   @Test
-  public void testVersion2BuckProjectCustomSdks() throws IOException {
-    runBuckProjectAndVerify("experimental_project_with_custom_sdks");
+  public void testBuckProjectWithCustomAndroidSdks() throws IOException {
+    runBuckProjectAndVerify("project_with_custom_android_sdks");
+  }
+
+  @Test
+  public void testBuckProjectWithCustomJavaSdks() throws IOException {
+    runBuckProjectAndVerify("project_with_custom_java_sdks");
   }
 
   @Test
   public void testVersion2BuckProjectWithProjectSettings() throws IOException {
     runBuckProjectAndVerify("experimental_project_with_project_settings");
+  }
+
+  @Test
+  public void testVersion2BuckProjectWithScripts() throws IOException {
+    runBuckProjectAndVerify("experimental_project_with_scripts", "//modules/dep1:dep1");
   }
 
   @Test

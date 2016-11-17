@@ -32,6 +32,7 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
+import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -179,7 +180,12 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   TargetNode<?> getNode(QueryTarget target)
       throws QueryException {
-    Preconditions.checkState(target instanceof QueryBuildTarget);
+    if (!(target instanceof QueryBuildTarget)) {
+      throw new IllegalArgumentException(String.format(
+          "Expected %s to be a build target but it was an instance of %s",
+          target,
+          target.getClass().getName()));
+    }
     ListeningExecutorService executor = null;
     try {
       executor = com.google.common.util.concurrent.MoreExecutors.listeningDecorator(

@@ -32,9 +32,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,6 +42,7 @@ import com.google.common.io.Files;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * A generator of fine-grained OCaml build rules
@@ -62,6 +61,8 @@ public class OCamlBuildRulesGenerator {
   private final Compiler cCompiler;
   private final Compiler cxxCompiler;
   private final boolean bytecodeOnly;
+
+  private BuildRule cleanRule;
 
   public OCamlBuildRulesGenerator(
       BuildRuleParams params,
@@ -82,6 +83,7 @@ public class OCamlBuildRulesGenerator {
     this.cCompiler = cCompiler;
     this.cxxCompiler = cxxCompiler;
     this.bytecodeOnly = bytecodeOnly;
+    this.cleanRule = generateCleanBuildRule(params, pathResolver, ocamlContext);
   }
 
   /**
@@ -89,6 +91,9 @@ public class OCamlBuildRulesGenerator {
    */
   OCamlGeneratedBuildRules generate() {
 
+    // TODO(): The order of rules added to "rules" matters - the OCamlRuleBuilder
+    // object currently assumes that the native or bytecode compilation rule will
+    // be the first one in the list. We should eliminate this restriction.
     ImmutableList.Builder<BuildRule> rules = ImmutableList.builder();
     ImmutableList.Builder<BuildRule> nativeCompileDeps = ImmutableList.builder();
     ImmutableList.Builder<BuildRule> bytecodeCompileDeps = ImmutableList.builder();
@@ -176,6 +181,9 @@ public class OCamlBuildRulesGenerator {
                   .addAll(pathResolver.filterBuildRuleInputs(cSrc))
                   // Add any deps from the C/C++ preprocessor input.
                   .addAll(cxxPreprocessorInput.getDeps(resolver, pathResolver))
+                  // Add the clean rule, to ensure that any shared output folders shared with
+                  // OCaml build artifacts are properly cleaned.
+                  .add(this.cleanRule)
                   // Add deps from the C compiler, since we're calling it.
                   .addAll(cCompiler.getDeps(pathResolver))
                   .addAll(params.getDeclaredDeps().get())
@@ -200,6 +208,32 @@ public class OCamlBuildRulesGenerator {
           new BuildTargetSourcePath(compileRule.getBuildTarget()));
     }
     return objects.build();
+  }
+
+  private BuildRule generateCleanBuildRule(
+      BuildRuleParams params,
+      SourcePathResolver pathResolver,
+      OCamlBuildContext ocamlContext) {
+    BuildTarget cleanTarget =
+      BuildTarget.builder(params.getBuildTarget())
+        .addFlavors(
+            ImmutableFlavor.of(
+                String.format(
+                    "clean-%s",
+                    params.getBuildTarget().getShortName())))
+        .build();
+
+    BuildRuleParams cleanParams = params.copyWithChanges(
+      cleanTarget,
+      Suppliers.ofInstance(
+        ImmutableSortedSet.<BuildRule>naturalOrder()
+          .addAll(params.getDeclaredDeps().get())
+          .build()),
+      params.getExtraDeps());
+
+    BuildRule cleanRule = new OCamlClean(cleanParams, pathResolver, ocamlContext);
+    resolver.addToIndex(cleanRule);
+    return cleanRule;
   }
 
   public static BuildTarget addDebugFlavor(BuildTarget target) {
@@ -236,11 +270,13 @@ public class OCamlBuildRulesGenerator {
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(pathResolver.filterBuildRuleInputs(allInputs))
                 .addAll(
-                    FluentIterable.from(ocamlContext.getNativeLinkableInput().getArgs())
-                        .transformAndConcat(arg -> arg.getDeps(pathResolver)))
+                    ocamlContext.getNativeLinkableInput().getArgs().stream()
+                        .flatMap(arg -> arg.getDeps(pathResolver).stream())
+                        .iterator())
                 .addAll(
-                    FluentIterable.from(ocamlContext.getCLinkableInput().getArgs())
-                        .transformAndConcat(arg -> arg.getDeps(pathResolver)))
+                    ocamlContext.getCLinkableInput().getArgs().stream()
+                        .flatMap(arg -> arg.getDeps(pathResolver).stream())
+                        .iterator())
                 .addAll(cxxCompiler.getDeps(pathResolver))
                 .build()),
         Suppliers.ofInstance(
@@ -285,10 +321,12 @@ public class OCamlBuildRulesGenerator {
                 .addAll(pathResolver.filterBuildRuleInputs(allInputs))
                 .addAll(ocamlContext.getBytecodeLinkDeps())
                 .addAll(
-                    FluentIterable.from(ocamlContext.getBytecodeLinkableInput().getArgs())
-                        .append(ocamlContext.getCLinkableInput().getArgs())
-                        .transformAndConcat(arg -> arg.getDeps(pathResolver))
-                        .filter(Predicates.not(OCamlBuild.class::isInstance)))
+                    Stream.concat(
+                        ocamlContext.getBytecodeLinkableInput().getArgs().stream(),
+                        ocamlContext.getCLinkableInput().getArgs().stream())
+                        .flatMap(arg -> arg.getDeps(pathResolver).stream())
+                        .filter(rule -> !(rule instanceof OCamlBuild))
+                        .iterator())
                 .addAll(cxxCompiler.getDeps(pathResolver))
                 .build()),
     Suppliers.ofInstance(ImmutableSortedSet.of()));
@@ -465,6 +503,7 @@ public class OCamlBuildRulesGenerator {
         Suppliers.ofInstance(
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(params.getDeclaredDeps().get())
+                .add(this.cleanRule)
                 .addAll(deps)
                 .addAll(ocamlContext.getNativeCompileDeps())
                 .addAll(cCompiler.getDeps(pathResolver))
@@ -481,7 +520,7 @@ public class OCamlBuildRulesGenerator {
         compileParams,
         pathResolver,
         new OCamlMLCompileStep.Args(
-            params.getProjectFilesystem().getAbsolutifier(),
+            params.getProjectFilesystem()::resolve,
             cCompiler.getEnvironment(pathResolver),
             cCompiler.getCommandPrefix(pathResolver),
             ocamlContext.getOcamlCompiler().get(),
@@ -566,6 +605,7 @@ public class OCamlBuildRulesGenerator {
         buildTarget,
         Suppliers.ofInstance(
             ImmutableSortedSet.<BuildRule>naturalOrder()
+                .add(this.cleanRule)
                 .addAll(params.getDeclaredDeps().get())
                 .addAll(deps)
                 .addAll(ocamlContext.getBytecodeCompileDeps())
@@ -583,7 +623,7 @@ public class OCamlBuildRulesGenerator {
         compileParams,
         pathResolver,
         new OCamlMLCompileStep.Args(
-            params.getProjectFilesystem().getAbsolutifier(),
+            params.getProjectFilesystem()::resolve,
             cCompiler.getEnvironment(pathResolver),
             cCompiler.getCommandPrefix(pathResolver),
             ocamlContext.getOcamlBytecodeCompiler().get(),

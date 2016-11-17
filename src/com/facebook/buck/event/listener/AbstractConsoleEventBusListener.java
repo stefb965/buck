@@ -17,7 +17,7 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.cli.CommandEvent;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEvent;
@@ -30,6 +30,7 @@ import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.i18n.NumberFormatter;
 import com.facebook.buck.json.ParseBuckFileEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
@@ -73,6 +74,8 @@ import javax.annotation.Nullable;
  * running build to {@code stderr}.
  */
 public abstract class AbstractConsoleEventBusListener implements BuckEventListener, Closeable {
+
+  private static final Logger LOG = Logger.get(AbstractConsoleEventBusListener.class);
 
   private static final NumberFormatter TIME_FORMATTER = new NumberFormatter(
       locale1 -> {
@@ -437,6 +440,10 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
    * Formats a {@link ConsoleEvent} and adds it to {@code lines}.
    */
   protected void formatConsoleEvent(ConsoleEvent logEvent, ImmutableList.Builder<String> lines) {
+    if (logEvent.getMessage() == null) {
+      LOG.error("Got logEvent with null message");
+      return;
+    }
     String formattedLine = "";
     if (logEvent.containsAnsiEscapeCodes() || logEvent.getLevel().equals(Level.INFO)) {
       formattedLine = logEvent.getMessage();
@@ -660,9 +667,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   @Subscribe
   public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {
     if (event.getOperation() == ArtifactCacheEvent.Operation.STORE) {
-      if (event.wasUploadSuccessful()) {
+      if (event.getStoreData().wasStoreSuccessful().orElse(false)) {
         httpArtifactUploadedCount.incrementAndGet();
-        Optional<Long> artifactSizeBytes = event.getArtifactSizeBytes();
+        Optional<Long> artifactSizeBytes = event.getStoreData().getArtifactSizeBytes();
         if (artifactSizeBytes.isPresent()) {
           httpArtifactTotalBytesUploaded.addAndGet(artifactSizeBytes.get());
         }

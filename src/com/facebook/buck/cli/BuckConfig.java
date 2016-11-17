@@ -23,7 +23,6 @@ import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.config.ConfigViewCache;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildTargetParseException;
@@ -79,7 +78,7 @@ import javax.annotation.Nullable;
 /**
  * Structured representation of data read from a {@code .buckconfig} file.
  */
-public class BuckConfig {
+public class BuckConfig implements ConfigPathGetter {
 
   public static final String BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
 
@@ -326,11 +325,6 @@ public class BuckConfig {
     return config.getEnum(section, field, clazz);
   }
 
-  public <T extends Enum<T>> T getRequiredEnum(String section, String field, Class<T> clazz) {
-    Optional<T> value = getEnum(section, field, clazz);
-    return required(section, field, value);
-  }
-
   /**
    * @return a {@link SourcePath} identified by a @{link BuildTarget} or {@link Path} reference
    *     by the given section:field, if set.
@@ -350,15 +344,6 @@ public class BuckConfig {
       return Optional.of(
           new PathSourcePath(projectFilesystem, getPathFromVfs(value.get())));
     }
-  }
-
-  /**
-   * @return a {@link SourcePath} identified by a @{link BuildTarget} or {@link Path} reference
-   *     by the given section:field.
-   */
-  public SourcePath getRequiredSourcePath(String section, String field) {
-    Optional<SourcePath> path = getSourcePath(section, field);
-    return required(section, field, path);
   }
 
   /**
@@ -481,7 +466,7 @@ public class BuckConfig {
   }
 
   public boolean isProcessTrackerEnabled() {
-    return getBooleanValue(LOG_SECTION, "process_tracker_enabled", false);
+    return getBooleanValue(LOG_SECTION, "process_tracker_enabled", true);
   }
 
   public boolean isRuleKeyLoggerEnabled() {
@@ -515,15 +500,6 @@ public class BuckConfig {
 
   public ImmutableSet<String> getListenerJars() {
     return ImmutableSet.copyOf(getListWithoutComments("extensions", "listeners"));
-  }
-
-  public ImmutableSet<String> getSrcRoots() {
-    return ImmutableSet.copyOf(getListWithoutComments("java", "src_roots"));
-  }
-
-  public DefaultJavaPackageFinder createDefaultJavaPackageFinder() {
-    Set<String> srcRoots = getSrcRoots();
-    return DefaultJavaPackageFinder.createDefaultJavaPackageFinder(srcRoots);
   }
 
   /**
@@ -568,7 +544,7 @@ public class BuckConfig {
     }
 
     Path expandedPath = MorePaths.expandHomeDir(path);
-    return projectFilesystem.getAbsolutifier().apply(expandedPath);
+    return projectFilesystem.resolve(expandedPath);
   }
 
   public String getLocalhost() {
@@ -607,6 +583,11 @@ public class BuckConfig {
 
   public boolean hasUserDefinedValue(String sectionName, String propertyName) {
     return config.get(sectionName).containsKey(propertyName);
+  }
+
+  public Optional<ImmutableMap<String, String>> getSection(String sectionName) {
+    ImmutableMap<String, String> values = config.get(sectionName);
+    return values.isEmpty() ? Optional.empty() : Optional.of(values);
   }
 
   public Optional<String> getValue(String sectionName, String propertyName) {
@@ -715,6 +696,7 @@ public class BuckConfig {
   /**
    * @return the path for the given section and property.
    */
+  @Override
   public Optional<Path> getPath(String sectionName, String name) {
     return getPath(sectionName, name, true);
   }

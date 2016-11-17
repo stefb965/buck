@@ -31,6 +31,7 @@ import com.facebook.buck.slb.ThriftProtocol;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.io.ByteSource;
 
@@ -39,6 +40,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
+import java.util.Optional;
 
 import okhttp3.MediaType;
 import okhttp3.Request;
@@ -103,7 +106,10 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       }
 
       try (ThriftArtifactCacheProtocol.Response response =
-          ThriftArtifactCacheProtocol.parseResponse(PROTOCOL, httpResponse.getBody())) {
+               ThriftArtifactCacheProtocol.parseResponse(PROTOCOL, httpResponse.getBody())) {
+        eventBuilder
+            .getFetchBuilder()
+            .setResponseSizeBytes(httpResponse.contentLength());
 
         BuckCacheResponse cacheResponse = response.getThriftData();
         if (!cacheResponse.isWasSuccessful()) {
@@ -116,23 +122,31 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
         }
 
         Path tmp = createTempFileForDownload();
-        ThriftArtifactCacheProtocol.Response.ReadPayloadInfo readResult = null;
+        ThriftArtifactCacheProtocol.Response.ReadPayloadInfo readResult;
         try (OutputStream tmpFile = projectFilesystem.newFileOutputStream(tmp)) {
           readResult = response.readPayload(tmpFile);
         }
 
         ArtifactMetadata metadata = fetchResponse.getMetadata();
+        eventBuilder
+            .setTarget(Optional.ofNullable(metadata.getBuildTarget()))
+            .getFetchBuilder()
+            .setAssociatedRuleKeys(toImmutableSet(metadata.getRuleKeys()))
+            .setArtifactSizeBytes(readResult.getBytesRead());
         if (!metadata.isSetArtifactPayloadMd5()) {
           String msg = "Fetched artifact is missing the MD5 hash.";
           LOG.warn(msg);
-        } else if (!readResult.getMd5Hash()
-            .equals(fetchResponse.getMetadata().getArtifactPayloadMd5())) {
-          String msg = String.format(
-              "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
-              fetchResponse.getMetadata().getArtifactPayloadMd5(),
-              readResult.getMd5Hash());
-          LOG.error(msg);
-          return CacheResult.error(name, msg);
+        } else {
+          eventBuilder.getFetchBuilder().setArtifactContentHash(metadata.getArtifactPayloadMd5());
+          if (!readResult.getMd5Hash()
+              .equals(fetchResponse.getMetadata().getArtifactPayloadMd5())) {
+            String msg = String.format(
+                "The artifact fetched from cache is corrupted. ExpectedMD5=[%s] ActualMD5=[%s]",
+                fetchResponse.getMetadata().getArtifactPayloadMd5(),
+                readResult.getMd5Hash());
+            LOG.error(msg);
+            return CacheResult.error(name, msg);
+          }
         }
 
         // This makes sure we don't have 'half downloaded files' in the dir cache.
@@ -143,6 +157,13 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
             readResult.getBytesRead());
       }
     }
+  }
+
+  private static ImmutableSet<RuleKey> toImmutableSet(
+      List<com.facebook.buck.artifact_cache.thrift.RuleKey> ruleKeys) {
+    return ImmutableSet.copyOf(Iterables.transform(
+        ruleKeys,
+        input -> new RuleKey(input.getHashString())));
   }
 
   @Override
@@ -171,6 +192,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
     final ThriftArtifactCacheProtocol.Request request =
         ThriftArtifactCacheProtocol.createRequest(PROTOCOL, cacheRequest, artifact);
     Request.Builder builder = toOkHttpRequest(request);
+    eventBuilder.getStoreBuilder().setRequestSizeBytes(request.getRequestLengthBytes());
     try (HttpResponse httpResponse = storeClient.makeRequest(hybridThriftEndpoint, builder)) {
       if (httpResponse.code() != 200) {
         throw new IOException(String.format(
@@ -183,7 +205,7 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
       }
 
       try (ThriftArtifactCacheProtocol.Response response =
-          ThriftArtifactCacheProtocol.parseResponse(PROTOCOL, httpResponse.getBody())) {
+               ThriftArtifactCacheProtocol.parseResponse(PROTOCOL, httpResponse.getBody())) {
         if (!response.getThriftData().isWasSuccessful()) {
           reportFailure(
               "Failed to store artifact with thriftErrorMessage=[%s] " +
@@ -193,16 +215,18 @@ public class ThriftArtifactCache extends AbstractNetworkCache {
               artifactSizeBytes);
         }
 
-        eventBuilder.setArtifactContentHash(storeRequest.getMetadata().artifactPayloadMd5);
-        eventBuilder.setArtifactSizeBytes(artifactSizeBytes);
-        eventBuilder.setWasUploadSuccessful(response.getThriftData().isWasSuccessful());
+        eventBuilder
+            .getStoreBuilder()
+            .setArtifactContentHash(storeRequest.getMetadata().artifactPayloadMd5);
+        eventBuilder.getStoreBuilder().setWasStoreSuccessful(
+            response.getThriftData().isWasSuccessful());
       }
     }
   }
 
   private Path createTempFileForDownload() throws IOException {
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getScratchDir());
-    return  projectFilesystem.createTempFile(
+    return projectFilesystem.createTempFile(
         projectFilesystem.getBuckPaths().getScratchDir(),
         "buckcache_artifact",
         ".tmp");

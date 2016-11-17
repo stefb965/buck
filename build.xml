@@ -49,7 +49,7 @@
 
   <property name="buck.pythonpath" value="${pathlib.dir}:${pywatchman.dir}:${nailgun.dir}:${scandir.dir}:${testutil.integration.dir}" />
 
-  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-2.1.18.jar" />
+  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-2.3.8.jar" />
 
   <property name="manual.gensrc.dir" value="${basedir}/src-gen" />
   <property name="manual.gensrc.classes.dir" value="${build.dir}/src-gen/classes" />
@@ -113,11 +113,11 @@
     <include name="guice/guice-multibindings-3.0.jar" />
     <include name="gson/gson-2.2.4.jar" />
     <include name="icu4j/icu4j-54.1.1.jar" />
-    <include name="immutables/value-2.1.18.jar" />
+    <include name="immutables/value-2.3.8.jar" />
     <include name="infer-annotations/infer-annotations-1.5.jar" />
     <include name="nuprocess/nuprocess-1.1.0.jar" />
-    <include name="jacoco/org.jacoco.core-0.7.5.201505241946.jar" />
-    <include name="jacoco/org.jacoco.report-0.7.5.201505241946.jar" />
+    <include name="jacoco/org.jacoco.core-0.7.7.201606060606.jar" />
+    <include name="jacoco/org.jacoco.report-0.7.7.201606060606.jar" />
     <include name="jetty/jetty-all-9.2.10.v20150310.jar" />
     <include name="jimfs/jimfs-1.1.jar" />
     <include name="jsr/javax.inject-1.jar" />
@@ -415,15 +415,18 @@
           todir="build-ij/classes/production/buck/com/facebook/buck/json"/>
     <copy file="${classes.dir}/com/facebook/buck/json/pywatchman-archive.zip"
           todir="build-ij/classes/production/buck/com/facebook/buck/json"/>
+    <zip basedir="src/com/facebook/buck/json"
+         destfile="${classes.dir}/com/facebook/buck/json/python_bundle.zip"
+         includes="buck_parser/**/*.py"
+         excludes="BUCK,buck_parser/**/*_test.py"
+         defaultexcludes="no"/>
+
   </target>
 
   <target name="compile"
           depends="compile-testrunner, compile-aosp, compile-manual-gen-src, bootstrapper, package-resources, tracing-api, dx"
           description="compile Java source code">
     <mkdir dir="${classes.dir}" />
-
-    <!-- Copy in scripts we need at run time when using an unpacked buck -->
-    <copy file="src/com/facebook/buck/json/buck.py" todir="${classes.dir}/com/facebook/buck/json"/>
 
     <ecj>
       <javac-params>
@@ -537,8 +540,8 @@
 
   <target name="report-generator-jar" depends="compile">
     <jar destfile="${build.dir}/report-generator.jar">
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.7.5.201505241946.jar"/>
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.7.5.201505241946.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.7.7.201606060606.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.7.7.201606060606.jar"/>
       <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/asm/asm-debug-all-5.0.3.jar"/>
       <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/plexus/plexus-utils-3.0.20.jar"/>
       <fileset dir="${classes.dir}">
@@ -692,9 +695,13 @@
   <target name="py-test" description="runs the Python tests" depends="buck-py-test, class-loader-py-test, log-rotation-py-test, pathlib-py-test, zip-munger-py-test, buck-tool-py-test, scandir-py-test" />
 
   <target name="buck-py-test" description="tests the BUCK parser">
-    <exec executable="python" failonerror="true">
+    <exec executable="python" failonerror="true" dir="${basedir}/src/com/facebook/buck/json">
+      <!-- The py folder is actually a python package, so use module import style here. -->
       <env key="PYTHONPATH" path="${buck.pythonpath}" />
-      <arg value="src/com/facebook/buck/json/buck_test.py" />
+      <arg value="-m" />
+      <arg value="unittest" />
+      <arg value="buck_parser.buck_test" />
+      <arg value="buck_parser.processor_test" />
     </exec>
   </target>
 
@@ -861,7 +868,13 @@
     </forbiddenapis>
   </target>
 
-  <target name="lint" depends="pmd, checkstyle" />
+  <target name="missing-test-files-check">
+    <exec dir="${user.dir}/scripts" executable="python" failonerror="true">
+      <arg line="verify-test-files.py" />
+    </exec>
+  </target>
+
+  <target name="lint" depends="pmd, checkstyle, missing-test-files-check" />
 
   <target name="test" depends="java-test, py-test" description="runs the unit tests" />
 

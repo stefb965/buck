@@ -21,7 +21,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.event.LeafEvent;
-import com.facebook.buck.event.TestEventConfigerator;
+import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
@@ -111,8 +111,8 @@ public class BuildThreadStateRendererTest {
         is(equalTo(
             ImmutableList.of(
                 " |=> //:target2...  4.4s (running step A[2.7s])",
-                " |=> //:target1...  3.3s (checking local cache)",
-                " |=> //:target3...  2.6s (checking local cache)",
+                " |=> //:target1...  3.3s (checking_cache)",
+                " |=> //:target3...  2.6s (checking_cache)",
                 " |=> //:target4...  1.2s (running step B[0.5s])",
                 " |=> IDLE"))));
     assertThat(
@@ -120,8 +120,8 @@ public class BuildThreadStateRendererTest {
         is(equalTo(
             ImmutableList.of(
                 " |=> //:target2...  4.4s (running step A[2.7s])",
-                " |=> //:target3...  2.6s (checking local cache)",
-                " |=> //:target1...  3.3s (checking local cache)",
+                " |=> //:target3...  2.6s (checking_cache)",
+                " |=> //:target1...  3.3s (checking_cache)",
                 " |=> IDLE",
                 " |=> //:target4...  1.2s (running step B[0.5s])"))));
     assertThat(
@@ -157,7 +157,7 @@ public class BuildThreadStateRendererTest {
         is(equalTo(
             ImmutableList.of(
                 // two missing build rules - no output
-                " |=> //:target3...  2.6s (checking local cache)", // missing step information
+                " |=> //:target3...  2.6s (checking_cache)", // missing step information
                 " |=> IDLE",
                 " |=> IDLE")))); // missing accumulated time - show as IDLE
     assertThat(
@@ -175,7 +175,7 @@ public class BuildThreadStateRendererTest {
       long timeMs,
       BuildRule rule) {
     return Optional.of(
-        TestEventConfigerator.configureTestEventAtTime(
+        TestEventConfigurator.configureTestEventAtTime(
             BuildRuleEvent.started(rule),
             timeMs,
             TimeUnit.MILLISECONDS,
@@ -187,7 +187,7 @@ public class BuildThreadStateRendererTest {
       long timeMs,
       String name) {
     return Optional.of(
-        TestEventConfigerator.configureTestEventAtTime(
+        TestEventConfigurator.configureTestEventAtTime(
             StepEvent.started(name, name + " description", UUID.randomUUID()),
             timeMs,
             TimeUnit.MILLISECONDS,

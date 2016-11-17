@@ -23,63 +23,42 @@ import org.eclipse.jetty.websocket.api.annotations.OnWebSocketConnect;
 import org.eclipse.jetty.websocket.api.annotations.OnWebSocketMessage;
 import org.eclipse.jetty.websocket.api.annotations.WebSocket;
 
-import java.util.Date;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 
 // Set the maximum message text size to 24 MB
 @WebSocket(maxTextMessageSize = 24 * 1024 * 1024)
 public class BuckSocket {
-    private AtomicBoolean connected;
-    private AtomicLong lastActionTime;
-    private BuckEventsHandlerInterface eventsHandler;
+  private AtomicBoolean connected;
+  private BuckEventsHandlerInterface eventsHandler;
 
-    @SuppressWarnings("unused")
-    private Session session;
+  @SuppressWarnings("unused")
+  private Session session;
 
-    public BuckSocket(BuckEventsHandlerInterface eventsHandler) {
-        this.connected = new AtomicBoolean(false);
-        this.lastActionTime = new AtomicLong(0);
-        this.eventsHandler = eventsHandler;
-    }
+  public BuckSocket(BuckEventsHandlerInterface eventsHandler) {
+    this.connected = new AtomicBoolean(false);
+    this.eventsHandler = eventsHandler;
+  }
 
-    public boolean isConnected() {
-        return connected.get();
-    }
+  public boolean isConnected() {
+    return connected.get();
+  }
 
-    public long getTimeSinceLastAction() {
-        return new Date().getTime() - lastActionTime.get();
-    }
+  @OnWebSocketClose
+  public void onClose(int statusCode, String reason) {
+    connected.set(false);
+    this.session = null;
+    eventsHandler.onDisconnect();
+  }
 
-    @OnWebSocketClose
-    public void onClose(int statusCode, String reason) {
-        connected.set(false);
-        this.session = null;
-        eventsHandler.onDisconnect();
-    }
+  @OnWebSocketConnect
+  public void onConnect(Session session) {
+    connected.set(true);
+    this.session = session;
+    eventsHandler.onConnect();
+  }
 
-    @OnWebSocketConnect
-    public void onConnect(Session session) {
-        connected.set(true);
-        this.session = session;
-        eventsHandler.onConnect();
-    }
-
-    @OnWebSocketMessage
-    public void onMessage(String msg) {
-        lastActionTime.set(new Date().getTime());
-        eventsHandler.onMessage(msg);
-    }
-
-    public void sendMessage(String msg)
-            throws InterruptedException, ExecutionException, TimeoutException {
-        lastActionTime.set(new Date().getTime());
-        Future<Void> fut;
-        fut = session.getRemote().sendStringByFuture(msg);
-        fut.get(1, TimeUnit.SECONDS);
-    }
+  @OnWebSocketMessage
+  public void onMessage(String msg) {
+    eventsHandler.onMessage(msg);
+  }
 }

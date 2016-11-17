@@ -56,8 +56,6 @@ import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ZipFileTraversal;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -127,7 +125,11 @@ public class JavaTest
   @AddToRuleKey
   private final TestType testType;
 
+  @AddToRuleKey
   private final Optional<Long> testRuleTimeoutMs;
+
+  @AddToRuleKey
+  private final Optional<Long> testCaseTimeoutMs;
 
   @AddToRuleKey
   private final ImmutableMap<String, String> env;
@@ -160,6 +162,7 @@ public class JavaTest
       List<String> vmArgs,
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
+      Optional<Long> testCaseTimeoutMs,
       ImmutableMap<String, String> env,
       boolean runTestSeparately,
       ForkMode forkMode,
@@ -176,6 +179,7 @@ public class JavaTest
     this.contacts = ImmutableSet.copyOf(contacts);
     this.testType = testType;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.testCaseTimeoutMs = testCaseTimeoutMs;
     this.env = env;
     this.runTestSeparately = runTestSeparately;
     this.forkMode = forkMode;
@@ -228,6 +232,7 @@ public class JavaTest
         .setClasspathFile(getClassPathFile())
         .setTestRunnerClasspath(TESTRUNNER_CLASSES)
         .setCodeCoverageEnabled(executionContext.isCodeCoverageEnabled())
+        .setInclNoLocationClassesEnabled(executionContext.isInclNoLocationClassesEnabled())
         .setDebugEnabled(executionContext.isDebugEnabled())
         .setPathToJavaAgent(options.getPathToJavaAgent())
         .setBuildId(buildId)
@@ -245,6 +250,7 @@ public class JavaTest
         getProjectFilesystem(),
         nativeLibsEnvironment,
         testRuleTimeoutMs,
+        testCaseTimeoutMs,
         env,
         javaRuntimeLauncher,
         args);
@@ -529,7 +535,7 @@ public class JavaTest
       Path outputPath;
       Path relativeOutputPath = rule.getPathToOutput();
       if (relativeOutputPath != null) {
-        outputPath = rule.getProjectFilesystem().getAbsolutifier().apply(relativeOutputPath);
+        outputPath = rule.getProjectFilesystem().resolve(relativeOutputPath);
       } else {
         outputPath = null;
       }
@@ -632,8 +638,9 @@ public class JavaTest
         // By the end of the build, all the transitive Java library dependencies *must* be available
         // on disk, so signal this requirement via the {@link HasRuntimeDeps} interface.
         .addAll(
-            FluentIterable.from(compiledTestsLibrary.getTransitiveClasspathDeps())
-                .filter(Predicates.not(this::equals)))
+            compiledTestsLibrary.getTransitiveClasspathDeps().stream()
+                .filter(rule -> !this.equals(rule))
+                .iterator())
         // It's possible that the user added some tool as a dependency, so make sure we promote
         // this rules first-order deps to runtime deps, so that these potential tools are available
         // when this test runs.
@@ -669,9 +676,7 @@ public class JavaTest
   }
 
   @Override
-  public ImmutableList<Step> getPostBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+  public ImmutableList<Step> getPostBuildSteps() {
     return ImmutableList.<Step>builder()
         .add(new MkdirStep(getProjectFilesystem(), getClassPathFile().getParent()))
         .add(

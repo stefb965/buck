@@ -17,7 +17,6 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.Ordering;
 
@@ -31,9 +30,6 @@ import java.util.List;
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractSourceWithFlags implements Comparable<AbstractSourceWithFlags> {
-
-  private static final Ordering<Iterable<String>> LEXICOGRAPHICAL_ORDERING =
-      Ordering.<String>natural().lexicographical();
 
   @Value.Parameter
   public abstract SourcePath getSourcePath();
@@ -49,7 +45,7 @@ abstract class AbstractSourceWithFlags implements Comparable<AbstractSourceWithF
 
     return ComparisonChain.start()
         .compare(this.getSourcePath(), that.getSourcePath())
-        .compare(this.getFlags(), that.getFlags(), LEXICOGRAPHICAL_ORDERING)
+        .compare(this.getFlags(), that.getFlags(), Ordering.<String>natural().lexicographical())
         .result();
   }
 
@@ -58,15 +54,5 @@ abstract class AbstractSourceWithFlags implements Comparable<AbstractSourceWithF
         .setSourcePath(sourcePath)
         .build();
   }
-
-  public static SourceWithFlags of(SourcePath sourcePath, List<String> flags) {
-    return SourceWithFlags.builder()
-        .setSourcePath(sourcePath)
-        .addAllFlags(flags)
-        .build();
-  }
-
-  public static final Function<SourceWithFlags, SourcePath> TO_SOURCE_PATH =
-      SourceWithFlags::getSourcePath;
 
 }

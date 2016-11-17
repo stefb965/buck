@@ -32,7 +32,6 @@ import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.io.WatchmanDiagnosticCache;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.DefaultProjectBuildFileParserFactory;
 import com.facebook.buck.json.ProjectBuildFileParser;
@@ -70,7 +69,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -134,8 +132,7 @@ public class ResolverIntegrationTest {
         ImmutableMap.of(),
         BuckEventBusFactory.newInstance(),
         filesystem,
-        /* ignoreBuckAutodepsFiles */ false,
-        new WatchmanDiagnosticCache());
+        /* ignoreBuckAutodepsFiles */ false);
   }
 
   @AfterClass
@@ -220,7 +217,7 @@ public class ResolverIntegrationTest {
     assertEquals(ImmutableList.of("PUBLIC"), rule.get("visibility"));
 
     // And it doesn't depend on anything
-    assertEquals(ImmutableList.of(), rule.get("deps"));
+    assertNull(rule.get("deps"));
   }
 
   @Test
@@ -252,7 +249,7 @@ public class ResolverIntegrationTest {
         ImmutableList.of(
             String.format("//%s:with-deps", MorePaths.pathWithUnixSeparators(exampleDir))),
         visibility);
-    assertEquals(ImmutableList.of(), noDeps.get("deps"));
+    assertNull(noDeps.get("deps"));
 
     assertEquals(ImmutableList.of("PUBLIC"), withDeps.get("visibility"));
     @SuppressWarnings("unchecked")
@@ -286,7 +283,7 @@ public class ResolverIntegrationTest {
 
     // Although the "deps-in-same-project" could be in the visibility param, it doesn't need to be
     // because it's declared in the same build file.
-    assertEquals(0, ((Collection<?>) noDeps.get("visibility")).size());
+    assertNull(noDeps.get("visibility"));
   }
 
   @Test

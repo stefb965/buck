@@ -19,6 +19,7 @@ package com.facebook.buck.doctor;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointRequest;
 import com.facebook.buck.doctor.config.DoctorEndpointResponse;
+import com.facebook.buck.doctor.config.DoctorSuggestion;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
@@ -42,6 +43,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.FormBody;
@@ -79,33 +81,41 @@ public class DoctorReportHelper {
     this.doctorConfig = doctorConfig;
   }
 
-  public BuildLogEntry promptForBuild(List<BuildLogEntry> buildLogs) throws IOException {
+  public Optional<BuildLogEntry> promptForBuild(List<BuildLogEntry> buildLogs) throws IOException {
+    if (buildLogs.isEmpty()) {
+      return Optional.empty();
+    }
+
     // Remove commands with unknown args or invocations of buck rage.
     buildLogs.removeIf(
         entry -> !(entry.getCommandArgs().isPresent() &&
-            !entry.getCommandArgs().get().contains("rage") &&
-            !entry.getCommandArgs().get().contains("doctor"))
+            !entry.getCommandArgs().get().matches("rage|doctor"))
     );
+
+    if (buildLogs.isEmpty()) {
+      return Optional.empty();
+    }
 
     // Sort the remaining logs based on time, reverse order.
     Collections.sort(
         buildLogs,
         Ordering.natural().onResultOf(BuildLogEntry::getLastModifiedTime).reverse());
 
-    return input.selectOne(
+    return Optional.of(input.selectOne(
         "Which buck invocation would you like to report?",
         buildLogs,
         entry -> {
-          Pair<Double, SizeUnit> humanReadableSize = SizeUnit.getHumanReadableSize(
-              entry.getSize(),
-              SizeUnit.BYTES);
+          Pair<Double, SizeUnit> humanReadableSize =
+              SizeUnit.getHumanReadableSize(entry.getSize(), SizeUnit.BYTES);
+
           return String.format(
-              "\t%s\tbuck [%s] (%.2f %s)",
+              "\t%s\tbuck [%s] %s (%.2f %s)",
               entry.getLastModifiedTime(),
-              entry.getCommandArgs().get(),
+              entry.getCommandArgs().orElse("unknown command"),
+              prettyPrintExitCode(entry.getExitCode()),
               humanReadableSize.getFirst(),
               humanReadableSize.getSecond().getAbbreviation());
-        });
+        }));
   }
 
   public DoctorEndpointRequest generateEndpointRequest(
@@ -134,11 +144,7 @@ public class DoctorReportHelper {
           Charsets.UTF_8));
     }
 
-    if (rageResult.isPresent()) {
-      rageUrl = Optional.of(rageResult.get().getReportSubmitLocation());
-    } else {
-      rageUrl = Optional.empty();
-    }
+    rageUrl = rageResult.map(result -> result.getReportSubmitMessage().get());
 
     return DoctorEndpointRequest.of(
         entry.getBuildId(),
@@ -213,25 +219,17 @@ public class DoctorReportHelper {
   public final void presentResponse(DoctorEndpointResponse response) {
     DirtyPrintStreamDecorator output = console.getStdOut();
 
-    output.println(console.getAnsi().asInformationText("\n:: Doctor results"));
-
     if (response.getErrorMessage().isPresent() && !response.getErrorMessage().get().isEmpty()) {
       LOG.warn(response.getErrorMessage().get());
       output.println(response.getErrorMessage().get());
       return;
     }
 
-    prettyPrintStatus(response.getEnvironmentStatus(), "Environment");
-    prettyPrintStatus(response.getParsingStatus(), "Parsing");
-    prettyPrintStatus(response.getRemoteCacheStatus(), "Remote cache");
-
     if (response.getSuggestions().isEmpty()) {
-      output.println(console.getAnsi().asWarningText(":: No available suggestions right now."));
+      output.println(console.getAnsi().asWarningText("\n:: No available suggestions right now."));
     } else {
-      output.println(console.getAnsi().asInformationText(":: Suggestions"));
-      for (String suggestion : response.getSuggestions()) {
-        output.println(console.getAnsi().asInformationText("- ") + suggestion);
-      }
+      output.println(console.getAnsi().asInformationText("\n:: Suggestions"));
+      response.getSuggestions().forEach(this::prettyPrintSuggestion);
     }
     output.println();
   }
@@ -252,11 +250,27 @@ public class DoctorReportHelper {
     }
   }
 
-  private void prettyPrintStatus(DoctorEndpointResponse.StepStatus status, String postfix) {
-    console.getStdOut().println(
-        String.format("  [%s ] %s",
-            console.getAnsi().isAnsiTerminal() ? status.getEmoji() : status.getText(),
-            postfix));
+  private void prettyPrintSuggestion(DoctorSuggestion suggestion) {
+    console.getStdOut().println(String.format(
+        "- [%s]%s %s",
+        console.getAnsi().isAnsiTerminal()
+            ? suggestion.getStatus().getEmoji() + " "
+            : suggestion.getStatus().getText(),
+        suggestion.getArea().isPresent() ? ("[" + suggestion.getArea().get() + "]") : "",
+        suggestion.getSuggestion()));
+  }
+
+  private String prettyPrintExitCode(OptionalInt exitCode) {
+    String result = "Exit code: " +
+        (exitCode.isPresent() ? Integer.toString(exitCode.getAsInt()) : "Unknown");
+    if (exitCode.isPresent() && console.getAnsi().isAnsiTerminal()) {
+      if (exitCode.getAsInt() == 0) {
+        return console.getAnsi().asGreenText(result);
+      } else {
+        return console.getAnsi().asRedText(result);
+      }
+    }
+    return result;
   }
 
   private DoctorEndpointResponse createErrorDoctorEndpointResponse(String errorMessage) {
@@ -264,9 +278,6 @@ public class DoctorReportHelper {
     LOG.error(errorMessage);
     return DoctorEndpointResponse.of(
         Optional.of(errorMessage),
-        DoctorEndpointResponse.StepStatus.UNKNOWN,
-        DoctorEndpointResponse.StepStatus.UNKNOWN,
-        DoctorEndpointResponse.StepStatus.UNKNOWN,
         ImmutableList.of());
   }
 

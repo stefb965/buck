@@ -15,11 +15,11 @@
  */
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
@@ -27,6 +27,7 @@ import com.google.common.hash.HashCode;
 
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class TargetNodeFactory {
   private final TypeCoercerFactory typeCoercerFactory;
@@ -48,7 +49,8 @@ public class TargetNodeFactory {
       HashCode rawInputsHashCode,
       Description<T> description,
       Object constructorArg,
-      BuildRuleFactoryParams params,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<VisibilityPattern> visibilityPatterns,
       CellPathResolver cellRoots)
@@ -57,7 +59,8 @@ public class TargetNodeFactory {
         rawInputsHashCode,
         description,
         (T) constructorArg,
-        params,
+        filesystem,
+        buildTarget,
         declaredDeps,
         visibilityPatterns,
         cellRoots);
@@ -68,7 +71,8 @@ public class TargetNodeFactory {
       HashCode rawInputsHashCode,
       Description<T> description,
       T constructorArg,
-      BuildRuleFactoryParams params,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableSet<VisibilityPattern> visibilityPatterns,
       CellPathResolver cellRoots)
@@ -95,7 +99,7 @@ public class TargetNodeFactory {
       extraDepsBuilder
           .addAll(
               ((ImplicitDepsInferringDescription<T>) description)
-                  .findDepsForTargetFromConstructorArgs(params.target, cellRoots, constructorArg));
+                  .findDepsForTargetFromConstructorArgs(buildTarget, cellRoots, constructorArg));
     }
 
     if (description instanceof ImplicitInputsInferringDescription) {
@@ -103,7 +107,7 @@ public class TargetNodeFactory {
           .addAll(
               ((ImplicitInputsInferringDescription<T>) description)
                   .inferInputsFromConstructorArgs(
-                      params.target.getUnflavoredBuildTarget(),
+                      buildTarget.getUnflavoredBuildTarget(),
                       constructorArg));
     }
 
@@ -112,12 +116,14 @@ public class TargetNodeFactory {
         rawInputsHashCode,
         description,
         constructorArg,
-        params,
+        filesystem,
+        buildTarget,
         declaredDeps,
         ImmutableSortedSet.copyOf(Sets.difference(extraDepsBuilder.build(), declaredDeps)),
         visibilityPatterns,
         pathsBuilder.build(),
-        cellRoots);
+        cellRoots,
+        Optional.empty());
   }
 
   private static void detectBuildTargetsAndPathsForConstructorArg(
@@ -157,7 +163,8 @@ public class TargetNodeFactory {
           originalNode.getRawInputsHashCode(),
           description,
           (T) originalNode.getConstructorArg(),
-          originalNode.getRuleFactoryParams(),
+          originalNode.getFilesystem(),
+          originalNode.getBuildTarget(),
           originalNode.getDeclaredDeps(),
           originalNode.getVisibilityPatterns(),
           originalNode.getCellNames());
@@ -178,7 +185,8 @@ public class TargetNodeFactory {
           originalNode.getRawInputsHashCode(),
           originalNode.getDescription(),
           originalNode.getConstructorArg(),
-          originalNode.getRuleFactoryParams().withFlavors(flavors),
+          originalNode.getFilesystem(),
+          originalNode.getBuildTarget().withFlavors(flavors),
           originalNode.getDeclaredDeps(),
           originalNode.getVisibilityPatterns(),
           originalNode.getCellNames());
@@ -188,20 +196,6 @@ public class TargetNodeFactory {
               "Caught exception when transforming TargetNode to use different flavors: %s",
               originalNode.getBuildTarget()),
           e);
-    }
-  }
-
-  @SuppressWarnings("serial")
-  public static class InvalidSourcePathInputException extends Exception
-      implements ExceptionWithHumanReadableMessage {
-
-    private InvalidSourcePathInputException(String message, Object...objects) {
-      super(String.format(message, objects));
-    }
-
-    @Override
-    public String getHumanReadableErrorMessage() {
-      return getMessage();
     }
   }
 }

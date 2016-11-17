@@ -28,7 +28,6 @@ import com.facebook.buck.rage.DefaultDefectReporter;
 import com.facebook.buck.rage.DefaultExtraInfoCollector;
 import com.facebook.buck.rage.DefectSubmitResult;
 import com.facebook.buck.rage.PopulatedReport;
-import com.facebook.buck.rage.RageBuckConfig;
 import com.facebook.buck.rage.RageConfig;
 import com.facebook.buck.rage.UserInput;
 import com.facebook.buck.rage.VcsInfoCollector;
@@ -50,7 +49,7 @@ public class DoctorCommand extends AbstractCommand {
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
-    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem);
+    BuildLogHelper buildLogHelper = new BuildLogHelper(filesystem, params.getObjectMapper());
 
     DoctorReportHelper helper = new DoctorReportHelper(
         params.getCell().getFilesystem(),
@@ -61,10 +60,16 @@ public class DoctorCommand extends AbstractCommand {
         params.getObjectMapper(),
         params.getBuckConfig().getView(DoctorConfig.class));
 
-    BuildLogEntry entry = helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
-    Optional<DefectSubmitResult> rageResult = generateRageReport(params, entry);
+    Optional<BuildLogEntry> entry =
+        helper.promptForBuild(new ArrayList<>(buildLogHelper.getBuildLogs()));
+    if (!entry.isPresent()) {
+      params.getConsole().getStdOut().println("No interesting commands found in buck-out/log.");
+      return 0;
+    }
 
-    DoctorEndpointRequest request = helper.generateEndpointRequest(entry, rageResult);
+    Optional<DefectSubmitResult> rageResult = generateRageReport(params, entry.get());
+
+    DoctorEndpointRequest request = helper.generateEndpointRequest(entry.get(), rageResult);
     DoctorEndpointResponse response = helper.uploadRequest(request);
 
     helper.presentResponse(response);
@@ -76,7 +81,7 @@ public class DoctorCommand extends AbstractCommand {
   private Optional<DefectSubmitResult> generateRageReport(
       CommandRunnerParams params,
       BuildLogEntry entry) throws IOException, InterruptedException {
-    RageConfig rageConfig = RageBuckConfig.create(params.getBuckConfig());
+    RageConfig rageConfig = RageConfig.of(params.getBuckConfig());
     VersionControlCmdLineInterfaceFactory vcsFactory =
         new DefaultVersionControlCmdLineInterfaceFactory(
             params.getCell().getFilesystem().getRootPath(),
