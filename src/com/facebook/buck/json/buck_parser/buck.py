@@ -1,4 +1,3 @@
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -13,9 +12,11 @@ from pywatchman import bser, WatchmanError
 from contextlib import contextmanager, nested
 from .glob_internal import glob_internal
 from .glob_mercurial import glob_mercurial_manifest, load_mercurial_repo_info
-from .glob_watchman import glob_watchman
-from .util import Diagnostic, cygwin_adjusted_path, is_special
+from .glob_watchman import SyncCookieState, glob_watchman
+from .util import Diagnostic, cygwin_adjusted_path, get_caller_frame, is_special, is_in_dir
+from .module_whitelist import ImportWhitelistManager, NoopImportWhitelistManager
 import StringIO
+import abc
 import cProfile
 import functools
 import hashlib
@@ -59,41 +60,65 @@ DEFAULT_WATCHMAN_QUERY_TIMEOUT = 5.0
 
 ORIGINAL_IMPORT = __builtin__.__import__
 
-class SyncCookieState(object):
-    """
-    Process-wide state used to enable Watchman sync cookies only on
-    the first query issued.
-    """
 
-    def __init__(self):
-        self.use_sync_cookies = True
+class AbstractContext(object):
+    """Superclass of execution contexts."""
+    __metaclass__ = abc.ABCMeta
+
+    @abc.abstractproperty
+    def includes(self):
+        """
+        :rtype: set[str]
+        """
+        raise NotImplementedError()
+
+    @abc.abstractproperty
+    def used_configs(self):
+        """
+        :rtype: dict[Tuple[str, str], str]
+        """
+        raise NotImplementedError()
+
+    @abc.abstractproperty
+    def used_env_vars(self):
+        """
+        :rtype: dict[str, str]
+        """
+        raise NotImplementedError()
+
+    @abc.abstractproperty
+    def diagnostics(self):
+        """
+        :rtype: list[Diagnostic]
+        """
+        raise NotImplementedError()
+
+    def merge(self, other):
+        """Merge the context of an included file into the current context.
+
+        :param IncludeContext other: the include context to merge.
+        :rtype: None
+        """
+        self.includes.update(other.includes)
+        self.diagnostics.extend(other.diagnostics)
+        self.used_configs.update(other.used_configs)
+        self.used_env_vars.update(other.used_env_vars)
 
 
-class BuildContextType(object):
-
-    """
-    Identifies the type of input file to the processor.
-    """
-
-    BUILD_FILE = 'build_file'
-    INCLUDE = 'include'
-
-
-class BuildFileContext(object):
-    """
-    The build context used when processing a build file.
-    """
-
-    type = BuildContextType.BUILD_FILE
+class BuildFileContext(AbstractContext):
+    """The build context used when processing a build file."""
 
     def __init__(self, project_root, base_path, dirname, autodeps, allow_empty_globs, ignore_paths,
                  watchman_client, watchman_watch_root, watchman_project_prefix,
                  sync_cookie_state, watchman_glob_stat_results,
                  watchman_use_glob_generator, use_mercurial_glob):
         self.globals = {}
-        self.includes = set()
-        self.used_configs = {}
-        self.used_env_vars = {}
+        self._includes = set()
+        self._used_configs = {}
+        self._used_env_vars = {}
+        self._diagnostics = []
+        self.rules = {}
+
         self.project_root = project_root
         self.base_path = base_path
         self.dirname = dirname
@@ -107,23 +132,49 @@ class BuildFileContext(object):
         self.watchman_glob_stat_results = watchman_glob_stat_results
         self.watchman_use_glob_generator = watchman_use_glob_generator
         self.use_mercurial_glob = use_mercurial_glob
-        self.diagnostics = []
-        self.rules = {}
+
+    @property
+    def includes(self):
+        return self._includes
+
+    @property
+    def used_configs(self):
+        return self._used_configs
+
+    @property
+    def used_env_vars(self):
+        return self._used_env_vars
+
+    @property
+    def diagnostics(self):
+        return self._diagnostics
 
 
-class IncludeContext(object):
-    """
-    The build context used when processing an include.
-    """
-
-    type = BuildContextType.INCLUDE
+class IncludeContext(AbstractContext):
+    """The build context used when processing an include."""
 
     def __init__(self):
         self.globals = {}
-        self.includes = set()
-        self.used_configs = {}
-        self.used_env_vars = {}
-        self.diagnostics = []
+        self._includes = set()
+        self._used_configs = {}
+        self._used_env_vars = {}
+        self._diagnostics = []
+
+    @property
+    def includes(self):
+        return self._includes
+
+    @property
+    def used_configs(self):
+        return self._used_configs
+
+    @property
+    def used_env_vars(self):
+        return self._used_env_vars
+
+    @property
+    def diagnostics(self):
+        return self._diagnostics
 
 
 class LazyBuildEnvPartial(object):
@@ -155,7 +206,14 @@ def provide_for_build(func):
 
 
 def add_rule(rule, build_env):
-    assert build_env.type == BuildContextType.BUILD_FILE, (
+    """Record a rule in the current context.
+
+    This should be invoked by rule functions generated by the Java code.
+
+    :param dict rule: dictionary of the rule's fields.
+    :param build_env: the current context.
+    """
+    assert isinstance(build_env, BuildFileContext), (
         "Cannot use `{}()` at the top-level of an included file."
         .format(rule['buck.type']))
 
@@ -226,7 +284,7 @@ def glob(includes, excludes=None, include_dotfiles=False, build_env=None, search
          allow_safe_import=None):
     if excludes is None:
         excludes = []
-    assert build_env.type == BuildContextType.BUILD_FILE, (
+    assert isinstance(build_env, BuildFileContext), (
         "Cannot use `glob()` at the top-level of an included file.")
     # Ensure the user passes lists of strings rather than just a string.
     assert not isinstance(includes, basestring), \
@@ -352,11 +410,12 @@ def get_base_path(build_env=None):
     Such macros may need to know the base path of the file in which they
     are defining new build rules.
 
-    Returns: a string, such as "java/com/facebook". Note there is no
+    :return: a string, such as "java/com/facebook". Note there is no
              trailing slash. The return value will be "" if called from
              the build file in the root of the project.
+    :rtype: str
     """
-    assert build_env.type == BuildContextType.BUILD_FILE, (
+    assert isinstance(build_env, BuildFileContext), (
         "Cannot use `get_base_path()` at the top-level of an included file.")
     return build_env.base_path
 
@@ -392,6 +451,18 @@ GENDEPS_SIGNATURE = re.compile(r'^#@# GENERATED FILE: DO NOT MODIFY ([a-f0-9]{40
 
 
 class BuildFileProcessor(object):
+    """Handles the processing of a single build file.
+
+    :type _current_build_env: AbstractContext | None
+    """
+
+    SAFE_MODULES_CONFIG = {
+        'os': ['environ', 'getenv', 'path', 'sep', 'pathsep', 'linesep'],
+        'os.path': ['basename', 'commonprefix', 'dirname', 'isabs', 'join', 'normcase',
+                    'relpath', 'split', 'splitdrive', 'splitext', 'sep', 'pathsep'],
+        'pipes': ['quote'],
+    }
+
     def __init__(self, project_root, cell_roots, build_file_name,
                  allow_empty_globs, ignore_buck_autodeps_files, no_autodeps_signatures,
                  watchman_client, watchman_glob_stat_results,
@@ -412,7 +483,7 @@ class BuildFileProcessor(object):
         if ignore_paths is None:
             ignore_paths = []
         self._cache = {}
-        self._build_env_stack = []
+        self._current_build_env = None
         self._sync_cookie_state = SyncCookieState()
 
         self._project_root = project_root
@@ -436,10 +507,13 @@ class BuildFileProcessor(object):
             func_with_env = LazyBuildEnvPartial(func)
             lazy_functions[func.__name__] = func_with_env
         self._functions = lazy_functions
-        self._safe_modules_config = self._create_safe_modules_config()
-        self._safe_modules = {}
-        self._custom_import = self._create_custom_import()
-        self._import_whitelist = self._create_import_whitelist(project_import_whitelist)
+        if self._enable_build_file_sandboxing:
+            self._import_whitelist_manager = ImportWhitelistManager(
+                import_whitelist=self._create_import_whitelist(project_import_whitelist),
+                safe_modules_config=self.SAFE_MODULES_CONFIG,
+                path_predicate=lambda path: is_in_dir(path, self._project_root))
+        else:
+            self._import_whitelist_manager = NoopImportWhitelistManager()
 
     def _wrap_env_var_read(self, read, real):
         """
@@ -569,7 +643,7 @@ class BuildFileProcessor(object):
         """
 
         # Grab the current build context from the top of the stack.
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
 
         # Lookup the value and record it in this build file's context.
         value = self._configs.get((section, field))
@@ -582,17 +656,18 @@ class BuildFileProcessor(object):
         return value
 
     def _glob(self, includes, excludes=None, include_dotfiles=False, search_base=None):
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
         return glob(
             includes, excludes=excludes, include_dotfiles=include_dotfiles,
             search_base=search_base, build_env=build_env,
-            allow_safe_import=self._allow_unsafe_import)
+            allow_safe_import=self._import_whitelist_manager.allow_unsafe_import)
 
     def _subdir_glob(self, glob_specs, excludes=None, prefix=None, search_base=None):
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
         return subdir_glob(
             glob_specs, excludes=excludes, prefix=prefix, search_base=search_base,
-            build_env=build_env, allow_safe_import=self._allow_unsafe_import)
+            build_env=build_env,
+            allow_safe_import=self._import_whitelist_manager.allow_unsafe_import)
 
     def _record_env_var(self, name, value):
         """
@@ -603,42 +678,18 @@ class BuildFileProcessor(object):
         """
 
         # Grab the current build context from the top of the stack.
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
 
         # Lookup the value and record it in this build file's context.
         build_env.used_env_vars[name] = value
-
-    def _get_callers_frame(self, skip=None):
-        """
-        Get the stack frame from where the function was called.
-        """
-        if skip is None:
-            skip = []
-        skip = set([__name__] + skip)
-        # Look up the caller's stack frame, skipping specified names.
-        frame = inspect.currentframe()
-        # Use 'get' as '__name__' may not exist if 'eval' was used ('get' will return None then).
-        while frame.f_globals.get('__name__') in skip:
-            frame = frame.f_back
-
-        return frame
-
-    def _is_in_dir(self, filepath, directory):
-        """
-        Returns true if 'filepath' is in 'directory'.
-        """
-        path = os.path.abspath(filepath)
-        # Make 'directory' end with '/' (os.sep) to detect that '/a/foo.py' is not in '/a/f' etc.
-        directory = os.path.join(os.path.abspath(directory), '')
-        return os.path.commonprefix([path, directory]) == directory
 
     def _called_from_project_file(self):
         """
         Returns true if the function was called from a project file.
         """
-        frame = self._get_callers_frame()
+        frame = get_caller_frame(skip=[__name__])
         filename = inspect.getframeinfo(frame).filename
-        return self._is_in_dir(filename, self._project_root)
+        return is_in_dir(filename, self._project_root)
 
     def _include_defs(self, name, implicit_includes=None):
         """
@@ -651,7 +702,7 @@ class BuildFileProcessor(object):
             implicit_includes = []
 
         # Grab the current build context from the top of the stack.
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
 
         # Resolve the named include to its path and process it to get its
         # build context and module.
@@ -662,22 +713,13 @@ class BuildFileProcessor(object):
 
         # Look up the caller's stack frame and merge the include's globals
         # into it's symbol table.
-        frame = self._get_callers_frame(skip=['_functools'])
+        frame = get_caller_frame(skip=['_functools', __name__])
         self._merge_globals(mod, frame.f_globals)
 
         # Pull in the include's accounting of its own referenced includes
         # into the current build context.
         build_env.includes.add(path)
-        build_env.includes.update(inner_env.includes)
-
-        # Pull in any diagnostics issued by the include.
-        build_env.diagnostics.extend(inner_env.diagnostics)
-
-        # Pull in any config settings used by the include.
-        build_env.used_configs.update(inner_env.used_configs)
-
-        # Pull in any config settings used by the include.
-        build_env.used_env_vars.update(inner_env.used_env_vars)
+        build_env.merge(inner_env)
 
     def _add_build_file_dep(self, name):
         """
@@ -689,117 +731,37 @@ class BuildFileProcessor(object):
         """
 
         # Grab the current build context from the top of the stack.
-        build_env = self._build_env_stack[-1]
+        build_env = self._current_build_env
 
         path = self._get_include_path(name)
         build_env.includes.add(path)
 
-    def _push_build_env(self, build_env):
-        """
-        Set the given build context as the current context.
-        """
-
-        self._build_env_stack.append(build_env)
-        self._update_functions(build_env)
-
-    def _pop_build_env(self):
-        """
-        Restore the previous build context as the current context.
-        """
-
-        self._build_env_stack.pop()
-        if self._build_env_stack:
-            self._update_functions(self._build_env_stack[-1])
+    @contextmanager
+    def _set_build_env(self, build_env):
+        """Set the given build context as the current context, unsetting it upon exit."""
+        old_env = self._current_build_env
+        self._current_build_env = build_env
+        self._update_functions(self._current_build_env)
+        try:
+            yield
+        finally:
+            self._current_build_env = old_env
+            self._update_functions(self._current_build_env)
 
     def _emit_warning(self, message, source):
         """
         Add a warning to the current build_env's diagnostics.
         """
-        if self._build_env_stack:
-            self._build_env_stack[-1].diagnostics.append(
+        if self._current_build_env is not None:
+            self._current_build_env.diagnostics.append(
                 Diagnostic(
                     message=message,
                     level='warning',
                     source=source,
                     exception=None))
 
-    def _block_unsafe_function(self, module, name):
-        # Returns a function that ignores any arguments and raises AttributeError.
-        def func(*args, **kwargs):
-            raise AttributeError(
-                'Using function %s is forbidden in the safe version of ' % name +
-                'module %s. If you really need to use this function read about ' % module +
-                'allow_unsafe_import() that is documented at ' +
-                'https://buckbuild.com/function/allow_unsafe_import.html'
-            )
-
-        return func
-
-    def _install_whitelisted_parts(self, mod, safe_mod, whitelist):
-        """
-        Copy whitelisted globals from a module to its safe version.
-        Functions not on the whitelist are blocked to show a more meaningful error.
-        """
-
-        mod_name = safe_mod.__name__
-        whitelist_set = set(whitelist)
-        for name in mod.__dict__:
-            if name in whitelist_set:
-                # Check if a safe version is defined in case it's a submodule.
-                # If it's not defined the original submodule will be copied.
-                submodule_name = mod_name + '.' + name
-                if submodule_name in self._safe_modules_config:
-                    # Get a safe version of the submodule
-                    safe_mod.__dict__[name] = self._get_safe_module(submodule_name)
-                else:
-                    safe_mod.__dict__[name] = mod.__dict__[name]
-            elif callable(mod.__dict__[name]):
-                safe_mod.__dict__[name] = self._block_unsafe_function(mod_name, name)
-
-    def _create_safe_modules_config(self):
-        """
-        Safe modules configurations. Stores whitelisted parts for specified module.
-        Supports submodules, e.g. for a safe version of module 'foo' with submodule 'bar'
-        specify {'foo': ['bar', 'fun1', 'fun2'], 'foo.bar': ['fun3', fun4']}
-        """
-        config = {
-            'os': ['environ', 'getenv', 'path', 'sep', 'pathsep', 'linesep'],
-            'os.path': ['basename', 'commonprefix', 'dirname', 'isabs', 'join', 'normcase',
-                        'relpath', 'split', 'splitdrive', 'splitext', 'sep', 'pathsep'],
-            'pipes': ['quote'],
-        }
-        return config
-
-    def _get_safe_module(self, name):
-        """
-        Returns a safe version of the module.
-        """
-
-        assert name in self._safe_modules_config, (
-            "Safe version of module %s is not configured." % name)
-
-        # Return the safe version of the module if already created
-        if name in self._safe_modules:
-            return self._safe_modules[name]
-
-        # Get the normal module, non-empty 'fromlist' prevents returning top-level package
-        # (e.g. 'os' would be returned for 'os.path' without it)
-        with self._allow_unsafe_import():
-            mod = ORIGINAL_IMPORT(name, fromlist=[''])
-
-        # Build a new module for the safe version
-        safe_mod = imp.new_module(name)
-
-        # Install whitelisted parts of the module, block the rest to produce errors
-        # informing about the safe version.
-        self._install_whitelisted_parts(mod, safe_mod, self._safe_modules_config[name])
-
-        # Store the safe version of the module
-        self._safe_modules[name] = safe_mod
-
-        return safe_mod
-
-    def _create_import_whitelist(self, project_import_whitelist):
+    @staticmethod
+    def _create_import_whitelist(project_import_whitelist):
         """
         Creates import whitelist by joining the global whitelist with the project specific one
         defined in '.buckconfig'.
@@ -810,68 +772,6 @@ class BuildFileProcessor(object):
                             'operator', 'fnmatch', 'copy_reg']
 
         return set(global_whitelist + project_import_whitelist)
-
-    def _create_custom_import(self):
-        """
-        Returns customised '__import__' function.
-        """
-
-        def _import(name, globals=None, locals=None, fromlist=(), level=-1):
-            """
-            Custom '__import__' function.
-            Returns safe version of a module if configured in '_safe_modules_config'.
-            Returns standard module if the module is whitelisted.
-            Blocks importing other modules.
-            """
-
-            if not fromlist:
-                # Return the top-level package if 'fromlist' is empty (e.g. 'os' for 'os.path'),
-                # which is how '__import__' works.
-                name = name.split('.')[0]
-
-            # The import will be always allowed if it was not called from a project file.
-            if name in self._import_whitelist or not self._called_from_project_file():
-                # Importing a module may cause more '__import__' calls if the module uses other
-                # modules. Such calls should not be blocked if the top-level import was allowed.
-                with self._allow_unsafe_import():
-                    return ORIGINAL_IMPORT(name, globals, locals, fromlist, level)
-
-            # Return safe version of the module if possible
-            if name in self._safe_modules_config:
-                return self._get_safe_module(name)
-
-            raise ImportError(
-                'Importing module %s is forbidden. ' % name +
-                'If you really need to import this module read about ' +
-                'allow_unsafe_import() function that is documented at ' +
-                'https://buckbuild.com/function/allow_unsafe_import.html'
-            )
-
-        return _import
-
-    @contextmanager
-    def _allow_unsafe_import(self, allow=True):
-        """
-        Controls behavior of 'import' in a context.
-        Default value for 'allow' is True, which corresponds to default 'import' behavior, False
-        overrides that with 'custom_import()' if sandboxing is enabled.
-
-        :param allow: True if default 'import' behavior should be allowed in the context
-        """
-
-        # Override '__import__' function. It might have already been overriden if current file
-        # was included by other build file, original '__import__' is stored in 'ORIGINAL_IMPORT'.
-        previous_import = __builtin__.__import__
-        if allow or not self._enable_build_file_sandboxing:
-            __builtin__.__import__ = ORIGINAL_IMPORT
-        else:
-            __builtin__.__import__ = self._custom_import
-
-        try:
-            yield
-        finally:
-            # Restore previous '__builtin__.__import__'
-            __builtin__.__import__ = previous_import
 
     def _file_access_wrapper(self, real):
         """
@@ -886,7 +786,7 @@ class BuildFileProcessor(object):
             with self._wrap_file_access(wrap=False):
                 if self._called_from_project_file():
                     path = os.path.abspath(filename)
-                    if path not in self._build_env_stack[-1].includes:
+                    if path not in self._current_build_env.includes:
                         dep_path = '//' + os.path.relpath(path, self._project_root)
                         warning_message = (
                             "Access to a non-tracked file detected! {0} is not a ".format(path) +
@@ -925,14 +825,12 @@ class BuildFileProcessor(object):
         finally:
             setattr(obj, attr, real)
 
-    @contextmanager
     def _wrap_file_access(self, wrap=True):
         """
         Wrap 'open' so that they it checks if accessed files are known dependencies.
         If 'wrap' is equal to False, restore original function instead.
         """
-        with self._wrap_fun_for_file_access(__builtin__, 'open', wrap):
-            yield
+        return self._wrap_fun_for_file_access(__builtin__, 'open', wrap)
 
     @contextmanager
     def _build_file_sandboxing(self):
@@ -945,12 +843,17 @@ class BuildFileProcessor(object):
             return
 
         with self._wrap_file_access():
-            with self._allow_unsafe_import(False):
+            with self._import_whitelist_manager.allow_unsafe_import(False):
                 yield
 
     def _process(self, build_env, path, implicit_includes=None):
-        """
-        Process a build file or include at the given path.
+        """Process a build file or include at the given path.
+
+        :param AbstractContext build_env: context of the file to process.
+        :param str path: target-like path to the file to process.
+        :param list[str] implicit_includes: defs to include first.
+        :returns: build context (potentially different if retrieved from cache) and loaded module.
+        :rtype: Tuple[AbstractContext, module]
         """
         if implicit_includes is None:
             implicit_includes = []
@@ -961,69 +864,68 @@ class BuildFileProcessor(object):
             return cached
 
         # Install the build context for this input as the current context.
-        self._push_build_env(build_env)
+        with self._set_build_env(build_env):
+            # The globals dict that this file will be executed under.
+            default_globals = {}
 
-        # The globals dict that this file will be executed under.
-        default_globals = {}
+            # Install the 'include_defs' function into our global object.
+            default_globals['include_defs'] = functools.partial(
+                self._include_defs,
+                implicit_includes=implicit_includes)
 
-        # Install the 'include_defs' function into our global object.
-        default_globals['include_defs'] = functools.partial(
-            self._include_defs,
-            implicit_includes=implicit_includes)
+            # Install the 'add_dependency' function into our global object.
+            default_globals['add_build_file_dep'] = self._add_build_file_dep
 
-        # Install the 'add_dependency' function into our global object.
-        default_globals['add_build_file_dep'] = self._add_build_file_dep
+            # Install the 'read_config' function into our global object.
+            default_globals['read_config'] = self._read_config
 
-        # Install the 'read_config' function into our global object.
-        default_globals['read_config'] = self._read_config
+            # Install the 'allow_unsafe_import' function into our global object.
+            default_globals['allow_unsafe_import'] = \
+                self._import_whitelist_manager.allow_unsafe_import
 
-        # Install the 'allow_unsafe_import' function into our global object.
-        default_globals['allow_unsafe_import'] = self._allow_unsafe_import
+            # Install the 'glob' and 'glob_subdir' functions into our global object.
+            default_globals['glob'] = self._glob
+            default_globals['subdir_glob'] = self._subdir_glob
 
-        # Install the 'glob' and 'glob_subdir' functions into our global object.
-        default_globals['glob'] = self._glob
-        default_globals['subdir_glob'] = self._subdir_glob
+            # If any implicit includes were specified, process them first.
+            for include in implicit_includes:
+                include_path = self._get_include_path(include)
+                inner_env, mod = self._process_include(include_path)
+                self._merge_globals(mod, default_globals)
+                build_env.includes.add(include_path)
+                build_env.merge(inner_env)
 
-        # If any implicit includes were specified, process them first.
-        for include in implicit_includes:
-            include_path = self._get_include_path(include)
-            inner_env, mod = self._process_include(include_path)
-            self._merge_globals(mod, default_globals)
-            build_env.includes.add(include_path)
-            build_env.includes.update(inner_env.includes)
-            build_env.diagnostics.extend(inner_env.diagnostics)
+            # Build a new module for the given file, using the default globals
+            # created above.
+            module = imp.new_module(path)
+            module.__file__ = path
+            module.__dict__.update(default_globals)
 
-        # Build a new module for the given file, using the default globals
-        # created above.
-        module = imp.new_module(path)
-        module.__file__ = path
-        module.__dict__.update(default_globals)
+            # We don't open this file as binary, as we assume it's a textual source
+            # file.
+            with self._wrap_file_access(wrap=False):
+                with open(path, 'r') as f:
+                    contents = f.read()
 
-        # We don't open this file as binary, as we assume it's a textual source
-        # file.
-        with self._wrap_file_access(wrap=False):
-            with open(path, 'r') as f:
-                contents = f.read()
+            # Enable absolute imports.  This prevents the compiler from trying to
+            # do a relative import first, and warning that this module doesn't
+            # exist in sys.modules.
+            future_features = __future__.absolute_import.compiler_flag
+            code = compile(contents, path, 'exec', future_features, 1)
 
-        # Enable absolute imports.  This prevents the compiler from trying to
-        # do a relative import first, and warning that this module doesn't
-        # exist in sys.modules.
-        future_features = __future__.absolute_import.compiler_flag
-        code = compile(contents, path, 'exec', future_features, 1)
-
-        # Execute code with build file sandboxing
-        with self._build_file_sandboxing():
-            exec(code, module.__dict__)
-
-        # Restore the previous build context.
-        self._pop_build_env()
+            # Execute code with build file sandboxing
+            with self._build_file_sandboxing():
+                exec(code, module.__dict__)
 
         self._cache[path] = build_env, module
         return build_env, module
 
     def _process_include(self, path, implicit_includes=None):
-        """
-        Process the include file at the given path.
+        """Process the include file at the given path.
+
+        :param str path: path to the include.
+        :param list[str] implicit_includes: implicit include files that should be included.
+        :rtype: Tuple[AbstractContext, module]
         """
         if implicit_includes is None:
             implicit_includes = []
@@ -1282,7 +1184,7 @@ def process_with_diagnostics(build_file_query, build_file_processor, to_parent,
                     level='fatal',
                     source=source,
                     exception=sys.exc_info()))
-        raise e
+        raise
     finally:
         if profile is not None:
             profile.disable()

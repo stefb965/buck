@@ -398,7 +398,7 @@ public class AppleTestIntegrationTest {
         containsString("FAILURE FooXCTest -[FooXCTest testTwoPlusTwoEqualsFive]: FooXCTest.m:9"));
   }
 
-  @Test
+  @Test(timeout = 180000)
   public void successOnAppTestPassing() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -417,7 +417,7 @@ public class AppleTestIntegrationTest {
         containsString("1 Passed   0 Skipped   0 Failed   AppTest"));
   }
 
-  @Test
+  @Test(timeout = 180000)
   public void testWithHostAppWithDsym() throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -465,7 +465,7 @@ public class AppleTestIntegrationTest {
         hostAppDsym);
   }
 
-  @Test
+  @Test(timeout = 180000)
   public void exitCodeIsCorrectOnAppTestFailure() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -528,7 +528,7 @@ public class AppleTestIntegrationTest {
         containsString("1 Passed   0 Skipped   0 Failed   LibTest"));
   }
 
-  @Test
+  @Test(timeout = 180000)
   public void successForAppTestWithXib() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
@@ -724,7 +724,7 @@ public class AppleTestIntegrationTest {
         Optional.of(ImmutableList.of("i386", "x86_64")));
   }
 
-  @Test
+  @Test(timeout = 180000)
   public void appleTestWithTestHostShouldSupportMultiarch() throws Exception {
     assumeTrue(Platform.detect() == Platform.MACOS);
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(

@@ -39,6 +39,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePaths;
@@ -48,6 +49,7 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
@@ -376,6 +378,36 @@ public class AppleDescriptions {
             MERGED_ASSET_CATALOG_NAME));
   }
 
+  public static Optional<CoreDataModel> createBuildRulesForCoreDataDependencies(
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      SourcePathResolver sourcePathResolver,
+      String moduleName,
+      AppleCxxPlatform appleCxxPlatform) {
+    TargetNode<?> targetNode = targetGraph.get(params.getBuildTarget());
+
+    ImmutableSet<CoreDataModelDescription.Arg> coreDataModelArgs =
+        AppleBuildRules.collectTransitiveCoreDataModels(targetGraph, ImmutableList.of(targetNode));
+
+    BuildRuleParams coreDataModelParams = params.copyWithChanges(
+        params.getBuildTarget().withAppendedFlavors(AppleAssetCatalog.FLAVOR),
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
+
+    if (coreDataModelArgs.isEmpty()) {
+      return Optional.empty();
+    } else {
+      return Optional.of(new CoreDataModel(
+          coreDataModelParams,
+          sourcePathResolver,
+          appleCxxPlatform,
+          moduleName,
+          coreDataModelArgs.stream()
+              .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
+              .collect(MoreCollectors.toImmutableSet())));
+    }
+  }
+
   static AppleDebuggableBinary createAppleDebuggableBinary(
       BuildRuleParams params,
       BuildRuleResolver resolver,
@@ -425,7 +457,7 @@ public class AppleDescriptions {
       FlavorDomain<AppleCxxPlatform> appleCxxPlatforms) {
     if (debugFormat == AppleDebugFormat.DWARF_AND_DSYM) {
       BuildTarget dsymBuildTarget = params.getBuildTarget()
-          .withoutFlavors(ImmutableSet.of(CxxStrip.RULE_FLAVOR))
+          .withoutFlavors(CxxStrip.RULE_FLAVOR)
           .withoutFlavors(StripStyle.FLAVOR_DOMAIN.getFlavors())
           .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
           .withAppendedFlavors(AppleDsym.RULE_FLAVOR);
@@ -547,6 +579,14 @@ public class AppleDescriptions {
             appleCxxPlatform.getAppleSdk().getApplePlatform(),
             appleCxxPlatform.getActool());
 
+    Optional<CoreDataModel> coreDataModel =
+        createBuildRulesForCoreDataDependencies(
+            targetGraph,
+            paramsWithoutBundleSpecificFlavors,
+            sourcePathResolver,
+            AppleBundle.getBinaryName(params.getBuildTarget(), productName),
+            appleCxxPlatform);
+
     // TODO(bhamiltoncx): Sort through the changes needed to make project generation work with
     // binary being optional.
     BuildRule flavoredBinaryRule = getFlavoredBinaryRule(
@@ -562,11 +602,12 @@ public class AppleDescriptions {
     }
 
     BuildTarget unstrippedTarget = flavoredBinaryRule.getBuildTarget()
-        .withoutFlavors(ImmutableSet.of(CxxStrip.RULE_FLAVOR))
+        .withoutFlavors(
+            CxxStrip.RULE_FLAVOR,
+            AppleDebuggableBinary.RULE_FLAVOR,
+            AppleBinaryDescription.APP_FLAVOR)
         .withoutFlavors(StripStyle.FLAVOR_DOMAIN.getFlavors())
-        .withoutFlavors(ImmutableSet.of(AppleDebuggableBinary.RULE_FLAVOR))
-        .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
-        .withoutFlavors(ImmutableSet.of(AppleBinaryDescription.APP_FLAVOR));
+        .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors());
     BuildRule unstrippedBinaryRule = resolver.requireRule(unstrippedTarget);
 
     BuildRule targetDebuggableBinaryRule;
@@ -604,6 +645,7 @@ public class AppleDescriptions {
         ImmutableSet.<BuildRule>builder()
             .add(targetDebuggableBinaryRule)
             .addAll(OptionalCompat.asSet(assetCatalog))
+            .addAll(OptionalCompat.asSet(coreDataModel))
             .addAll(
                 BuildRules.toBuildRulesFor(
                     params.getBuildTarget(),
@@ -635,6 +677,7 @@ public class AppleDescriptions {
         frameworks,
         appleCxxPlatform,
         assetCatalog,
+        coreDataModel,
         tests,
         codeSignIdentityStore,
         provisioningProfileStore);

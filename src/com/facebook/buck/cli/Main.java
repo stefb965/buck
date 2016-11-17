@@ -1156,14 +1156,22 @@ public final class Main {
                   vcBuckConfig,
                   buckConfig.getEnvironment());
 
-          if (command.isSourceControlStatsGatheringEnabled() ||
-              vcBuckConfig.shouldGenerateStatistics()) {
-            vcStatsGenerator = new VersionControlStatsGenerator(
-                diskIoExecutorService,
-                vcsFactory,
-                buildEventBus);
+          if (command.subcommand instanceof AbstractCommand) {
+            AbstractCommand subcommand = (AbstractCommand) command.subcommand;
+            if (subcommand.isSourceControlStatsGatheringEnabled() ||
+                vcBuckConfig.shouldGenerateStatistics()) {
+              vcStatsGenerator = new VersionControlStatsGenerator(
+                  diskIoExecutorService,
+                  new DefaultVersionControlCmdLineInterfaceFactory(
+                      rootCell.getFilesystem().getRootPath(),
+                      new PrintStreamProcessExecutorFactory(),
+                      vcBuckConfig,
+                      buckConfig.getEnvironment()),
+                  buildEventBus
+              );
 
-            vcStatsGenerator.generateStatsAsync();
+              vcStatsGenerator.generateStatsAsync();
+            }
           }
 
           ImmutableList<String> remainingArgs = args.length > 1
