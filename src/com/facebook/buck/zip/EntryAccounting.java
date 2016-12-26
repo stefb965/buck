@@ -37,14 +37,11 @@ import java.util.zip.ZipEntry;
  */
 class EntryAccounting {
 
-  private static final ThreadLocal<Calendar> CALENDAR = new ThreadLocal<Calendar>() {
-      @Override
-      protected Calendar initialValue() {
-        // We explicitly use the US locale to get a Gregorian calendar (zip file timestamps
-        // are encoded using the year, month, date, etc. in the Gregorian calendar).
-        return Calendar.getInstance(Locale.US);
-      }
-  };
+  private static final ThreadLocal<Calendar> CALENDAR = ThreadLocal.withInitial(() -> {
+    // We explicitly use the US locale to get a Gregorian calendar (zip file timestamps
+    // are encoded using the year, month, date, etc. in the Gregorian calendar).
+    return Calendar.getInstance(Locale.US);
+  });
 
   private static final int DATA_DESCRIPTOR_FLAG = 1 << 3;
   private static final int UTF8_NAMES_FLAG = 1 << 11;

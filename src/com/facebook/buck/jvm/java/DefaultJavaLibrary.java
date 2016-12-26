@@ -36,6 +36,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExportDependencies;
+import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
@@ -49,11 +50,13 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.zip.AppendToZipStep;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -93,7 +96,7 @@ import javax.annotation.Nullable;
  */
 public class DefaultJavaLibrary extends AbstractBuildRule
     implements JavaLibrary, HasClasspathEntries, ExportDependencies,
-    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable,
+    InitializableFromDisk<JavaLibrary.Data>, AndroidPackageable, HasPostBuildSteps,
     SupportsInputBasedRuleKey, SupportsDependencyFileRuleKey, JavaLibraryWithTests {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
@@ -549,6 +552,34 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     }
 
     JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, steps);
+
+    return steps.build();
+  }
+
+  @Override
+  public ImmutableList<Step> getPostBuildSteps() {
+    ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
+    if (!outputJar.isPresent()) {
+      return steps.build();  // Nothing to do. Bail fast.
+    }
+
+    Path scratchDir = BuildTargets.getScratchPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "lib__%s__stamp");
+
+    Path stampFile = getProjectFilesystem()
+        .resolve(scratchDir)
+        .resolve("build-stamp.properties");
+
+
+    // Create a file with the build information, and add it to the META-INF directory of the output
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), stampFile.getParent()));
+    steps.add(new CreateJavaBuildStampStep(stampFile));
+    steps.add(new AppendToZipStep(
+        getProjectFilesystem().resolve(outputJar.get()),
+        ImmutableMap.of(stampFile, "META-INF/build-stamp.properties")));
 
     return steps.build();
   }
