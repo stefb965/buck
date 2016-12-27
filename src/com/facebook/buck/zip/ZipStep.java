@@ -188,6 +188,9 @@ public class ZipStep implements Step {
 
       // Write the entries out using the iteration order of the tree map above.
       for (Pair<CustomZipEntry, Optional<Path>> entry : entries.values()) {
+        if ("/".equals(entry.getFirst().getName())) {
+          continue;
+        }
         out.putNextEntry(entry.getFirst());
         if (entry.getSecond().isPresent()) {
           try (InputStream input = filesystem.newFileInputStream(entry.getSecond().get())) {
