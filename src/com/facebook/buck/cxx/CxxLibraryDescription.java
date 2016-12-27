@@ -22,6 +22,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
+import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
@@ -37,6 +39,7 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -46,6 +49,7 @@ import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
@@ -62,9 +66,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -75,7 +77,8 @@ public class CxxLibraryDescription implements
     ImplicitDepsInferringDescription<CxxLibraryDescription.Arg>,
     ImplicitFlavorsInferringDescription,
     Flavored,
-    MetadataProvidingDescription<CxxLibraryDescription.Arg> {
+    MetadataProvidingDescription<CxxLibraryDescription.Arg>,
+    VersionPropagator<CxxLibraryDescription.Arg> {
 
   private static final Logger LOG = Logger.get(CxxLibraryDescription.class);
 
@@ -89,6 +92,7 @@ public class CxxLibraryDescription implements
     EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
     SANDBOX_TREE(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR),
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
+    SHARED_INTERFACE(ImmutableFlavor.of("shared-interface")),
     STATIC_PIC(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR),
     STATIC(CxxDescriptionEnhancer.STATIC_FLAVOR),
     MACH_O_BUNDLE(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR),
@@ -105,8 +109,6 @@ public class CxxLibraryDescription implements
       return flavor;
     }
   }
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("cxx_library");
 
   private static final FlavorDomain<Type> LIBRARY_TYPE =
       FlavorDomain.from("C/C++ Library Type", Type.class);
@@ -134,7 +136,8 @@ public class CxxLibraryDescription implements
         flavors.contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE) ||
         flavors.contains(CxxInferEnhancer.InferFlavors.INFER.get()) ||
         flavors.contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get()) ||
-        flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get());
+        flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get()) ||
+        LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(flavors);
 
   }
 
@@ -145,7 +148,8 @@ public class CxxLibraryDescription implements
       CxxPlatform cxxPlatform,
       ImmutableMultimap<CxxSource.Type, String> exportedPreprocessorFlags,
       ImmutableMap<Path, SourcePath> exportedHeaders,
-      ImmutableSet<FrameworkPath> frameworks) throws NoSuchBuildTargetException {
+      ImmutableSet<FrameworkPath> frameworks,
+      boolean shouldCreatePublicHeadersSymlinks) throws NoSuchBuildTargetException {
 
     // Check if there is a target node representative for the library in the action graph and,
     // if so, grab the cached transitive C/C++ preprocessor input from that.  We===
@@ -172,7 +176,8 @@ public class CxxLibraryDescription implements
             pathResolver,
             cxxPlatform,
             exportedHeaders,
-            HeaderVisibility.PUBLIC);
+            HeaderVisibility.PUBLIC,
+            shouldCreatePublicHeadersSymlinks);
     Map<BuildTarget, CxxPreprocessorInput> input = Maps.newLinkedHashMap();
 
     input.put(
@@ -198,6 +203,7 @@ public class CxxLibraryDescription implements
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       Arg arg,
@@ -213,6 +219,7 @@ public class CxxLibraryDescription implements
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             CxxSourceRuleFactory.PicType.PIC,
@@ -244,6 +251,7 @@ public class CxxLibraryDescription implements
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       CxxLibraryDescription.Arg args,
@@ -257,6 +265,9 @@ public class CxxLibraryDescription implements
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist)
       throws NoSuchBuildTargetException {
+    Optional<LinkerMapMode> flavoredLinkerMapMode = LinkerMapMode.FLAVOR_DOMAIN.getValue(
+        params.getBuildTarget());
+    params = LinkerMapMode.removeLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
 
     // Create rules for compiling the PIC object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
@@ -264,6 +275,7 @@ public class CxxLibraryDescription implements
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             CxxSourceRuleFactory.PicType.PIC,
@@ -272,7 +284,8 @@ public class CxxLibraryDescription implements
     // Setup the rules to link the shared library.
     BuildTarget sharedTarget =
         CxxDescriptionEnhancer.createSharedLibraryBuildTarget(
-            params.getBuildTarget(),
+            LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode)
+                .getBuildTarget(),
             cxxPlatform.getFlavor(),
             linkType);
 
@@ -291,9 +304,10 @@ public class CxxLibraryDescription implements
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
-        params,
+        LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode),
         ruleResolver,
         pathResolver,
+        ruleFinder,
         sharedTarget,
         linkType,
         Optional.of(sharedLibrarySoname),
@@ -373,17 +387,19 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args) {
+    boolean shouldCreatePrivateHeaderSymlinks = args.xcodePrivateHeadersSymlinks.orElse(true);
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
         resolver,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
             params.getBuildTarget(),
-            new SourcePathResolver(resolver),
+            new SourcePathResolver(new SourcePathRuleFinder(resolver)),
             Optional.of(cxxPlatform),
             args),
-        HeaderVisibility.PRIVATE);
+        HeaderVisibility.PRIVATE,
+        shouldCreatePrivateHeaderSymlinks);
   }
 
   /**
@@ -394,17 +410,19 @@ public class CxxLibraryDescription implements
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       A args) {
+    boolean shouldCreatePublicHeaderSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
         params,
         resolver,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         cxxPlatform,
         CxxDescriptionEnhancer.parseExportedHeaders(
             params.getBuildTarget(),
-            new SourcePathResolver(resolver),
+            new SourcePathResolver(new SourcePathRuleFinder(resolver)),
             Optional.of(cxxPlatform),
             args),
-        HeaderVisibility.PUBLIC);
+        HeaderVisibility.PUBLIC,
+        shouldCreatePublicHeaderSymlinks);
   }
 
   /**
@@ -419,7 +437,8 @@ public class CxxLibraryDescription implements
       CxxPlatform cxxPlatform,
       Arg args,
       CxxSourceRuleFactory.PicType pic) throws NoSuchBuildTargetException {
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     // Create rules for compiling the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
@@ -427,6 +446,7 @@ public class CxxLibraryDescription implements
             params,
             resolver,
             sourcePathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             pic,
@@ -461,6 +481,7 @@ public class CxxLibraryDescription implements
         staticTarget,
         params,
         sourcePathResolver,
+        ruleFinder,
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,
@@ -495,11 +516,14 @@ public class CxxLibraryDescription implements
             args.exportedPlatformLinkerFlags,
             cxxPlatform));
 
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver =
+        new SourcePathResolver(ruleFinder);
     return createSharedLibrary(
         params,
         resolver,
         sourcePathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         args,
@@ -512,6 +536,41 @@ public class CxxLibraryDescription implements
         linkableDepType,
         bundleLoader,
         blacklist);
+  }
+
+  private static <A extends Arg> BuildRule createSharedLibraryInterface(
+      BuildRuleParams baseParams,
+      BuildRuleResolver resolver,
+      CxxPlatform cxxPlatform)
+      throws NoSuchBuildTargetException {
+    BuildTarget baseTarget = baseParams.getBuildTarget();
+
+    Optional<SharedLibraryInterfaceFactory> factory =
+        cxxPlatform.getSharedLibraryInterfaceFactory();
+    if (!factory.isPresent()) {
+      throw new HumanReadableException(
+          "%s: C/C++ platform %s does not support shared library interfaces",
+          baseTarget,
+          cxxPlatform.getFlavor());
+    }
+
+    BuildRule sharedLibrary =
+        resolver.requireRule(
+            baseTarget.withAppendedFlavors(
+                cxxPlatform.getFlavor(),
+                Type.SHARED.getFlavor()));
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    return factory.get().createSharedInterfaceLibrary(
+        baseTarget.withAppendedFlavors(
+            Type.SHARED_INTERFACE.getFlavor(),
+            cxxPlatform.getFlavor()),
+        baseParams,
+        resolver,
+        pathResolver,
+        ruleFinder,
+        new BuildTargetSourcePath(sharedLibrary.getBuildTarget()));
   }
 
   @Override
@@ -546,11 +605,13 @@ public class CxxLibraryDescription implements
         .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       // XXX: This needs bundleLoader for tests..
       CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
-      SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+      SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
       return CxxDescriptionEnhancer.createCompilationDatabase(
           params,
           resolver,
           sourcePathResolver,
+          ruleFinder,
           cxxBuckConfig,
           cxxPlatform,
           args);
@@ -566,7 +627,7 @@ public class CxxLibraryDescription implements
       return CxxInferEnhancer.requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          new SourcePathResolver(resolver),
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           cxxBuckConfig,
           platform.orElse(defaultCxxPlatform),
           args,
@@ -577,7 +638,7 @@ public class CxxLibraryDescription implements
       return CxxInferEnhancer.requireInferAnalyzeBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          new SourcePathResolver(resolver),
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           cxxBuckConfig,
           platform.orElse(defaultCxxPlatform),
           args,
@@ -598,7 +659,7 @@ public class CxxLibraryDescription implements
       return CxxInferEnhancer.requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
           params,
           resolver,
-          new SourcePathResolver(resolver),
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)),
           cxxBuckConfig,
           platform.orElse(defaultCxxPlatform),
           args,
@@ -633,6 +694,11 @@ public class CxxLibraryDescription implements
               linkableDepType.orElse(Linker.LinkableDepType.SHARED),
               Optional.empty(),
               blacklist);
+        case SHARED_INTERFACE:
+          return createSharedLibraryInterface(
+              untypedParams,
+              resolver,
+              platform.get());
         case MACH_O_BUNDLE:
           return createSharedLibraryBuildRule(
               untypedParams,
@@ -661,10 +727,10 @@ public class CxxLibraryDescription implements
               args,
               CxxSourceRuleFactory.PicType.PIC);
         case SANDBOX_TREE:
-          return createSandboxTreeBuildRule(
+          return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
               resolver,
               args,
-              platform,
+              platform.get(),
               untypedParams);
       }
       throw new RuntimeException("unhandled library build type");
@@ -690,7 +756,8 @@ public class CxxLibraryDescription implements
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new CxxLibrary(
         params,
         resolver,
@@ -723,6 +790,7 @@ public class CxxLibraryDescription implements
                 params,
                 resolver,
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
                 args,
@@ -771,56 +839,6 @@ public class CxxLibraryDescription implements
         target,
         params.getDeclaredDeps(),
         params.getExtraDeps());
-  }
-
-  private static <A extends Arg> BuildRule createSandboxTreeBuildRule(
-      BuildRuleResolver resolver,
-      A args,
-      Optional<CxxPlatform> platform,
-      BuildRuleParams typeParams) {
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
-    ImmutableCollection<SourcePath> privateHeaders = CxxDescriptionEnhancer.parseHeaders(
-        typeParams.getBuildTarget(),
-        sourcePathResolver,
-        platform,
-        args).values();
-    ImmutableCollection<SourcePath> publicHeaders = CxxDescriptionEnhancer.parseExportedHeaders(
-        typeParams.getBuildTarget(),
-        sourcePathResolver,
-        platform,
-        args).values();
-    ImmutableCollection<CxxSource> sources = CxxDescriptionEnhancer.parseCxxSources(
-        typeParams.getBuildTarget(),
-        sourcePathResolver,
-        platform.get(),
-        args).values();
-    HashMap<Path, SourcePath> links = new HashMap<>();
-    for (SourcePath headerPath : privateHeaders) {
-      links.put(
-          Paths.get(sourcePathResolver.getSourcePathName(typeParams.getBuildTarget(), headerPath)),
-          headerPath);
-    }
-    for (SourcePath headerPath : publicHeaders) {
-      links.put(
-          Paths.get(sourcePathResolver.getSourcePathName(typeParams.getBuildTarget(), headerPath)),
-          headerPath);
-    }
-    for (CxxSource source : sources) {
-      SourcePath sourcePath = source.getPath();
-      links.put(
-          Paths.get(sourcePathResolver.getSourcePathName(typeParams.getBuildTarget(), sourcePath)),
-          sourcePath);
-    }
-    return CxxDescriptionEnhancer.createSandboxSymlinkTree(
-        typeParams,
-        sourcePathResolver,
-        platform.get(),
-        ImmutableMap.copyOf(links));
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -883,9 +901,7 @@ public class CxxLibraryDescription implements
   @Override
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
-    return addImplicitFlavorsForRuleTypes(
-        argDefaultFlavors,
-        TYPE);
+    return addImplicitFlavorsForRuleTypes(argDefaultFlavors, Description.getBuildRuleType(this));
   }
 
   public ImmutableSortedSet<Flavor> addImplicitFlavorsForRuleTypes(

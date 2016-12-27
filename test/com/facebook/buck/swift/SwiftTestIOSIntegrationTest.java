@@ -26,6 +26,7 @@ import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.ApplePlatform;
 import com.facebook.buck.apple.AppleTestBuilder;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -59,9 +60,7 @@ public class SwiftTestIOSIntegrationTest {
     workspace.copyRecursively(
         TestDataHelper.getTestDataDirectory(AppleTestBuilder.class).resolve("fbxctest"),
         Paths.get("fbxctest"));
-    workspace.writeContentsToPath(
-        "[apple]\n  xctool_path = fbxctest/bin/fbxctest\n",
-        ".buckconfig.local");
+    workspace.addBuckConfigLocalOption("apple", "xctool_path", "fbxctest/bin/fbxctest");
 
     ProjectFilesystem filesystem = new ProjectFilesystem(workspace.getDestPath());
 
@@ -79,6 +78,7 @@ public class SwiftTestIOSIntegrationTest {
                     ImmutableFlavor.of("iphonesimulator-x86_64"),
                     ImmutableFlavor.of("apple-test-bundle"),
                     AppleDebugFormat.DWARF.getFlavor(),
+                    LinkerMapMode.NO_LINKER_MAP.getFlavor(),
                     AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR)
                 .build(),
             "%s/MixedTest.xctest"))

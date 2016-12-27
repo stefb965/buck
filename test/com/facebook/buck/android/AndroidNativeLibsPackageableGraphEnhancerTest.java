@@ -31,6 +31,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
@@ -54,7 +55,8 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
   public void testNdkLibrary() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver sourcePathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
 
     NdkLibrary ndkLibrary = (NdkLibrary) new NdkLibraryBuilder(
         BuildTargetFactory.newInstance("//:ndklib"))
@@ -103,7 +105,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
     assertThat(copyNativeLibraries.getStrippedObjectDescriptions(), Matchers.empty());
     assertThat(
         copyNativeLibraries.getNativeLibDirectories().stream()
-            .map(sourcePathResolver::deprecatedGetPath)
+            .map(sourcePathResolver::getRelativePath)
             .collect(MoreCollectors.toImmutableList()),
         Matchers.contains(
             ndkLibrary.getLibraryPath()
@@ -132,11 +134,11 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         BuildTargetFactory.newInstance("//:cxxlib"))
         .setSoname("somelib.so")
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("test/bar.cpp"))));
-    TargetNode<CxxLibraryDescription.Arg> cxxLibraryDescription = cxxLibraryBuilder.build();
+    TargetNode<CxxLibraryDescription.Arg, ?> cxxLibraryDescription = cxxLibraryBuilder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(cxxLibraryDescription);
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     CxxLibrary cxxLibrary = (CxxLibrary) cxxLibraryBuilder.build(
         ruleResolver,
         new FakeProjectFilesystem(),
@@ -206,7 +208,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         )
     );
     assertThat(copyNativeLibraries.getNativeLibDirectories(), Matchers.empty());
-    ImmutableCollection<BuildRule> stripRules = sourcePathResolver.filterBuildRuleInputs(
+    ImmutableCollection<BuildRule> stripRules = ruleFinder.filterBuildRuleInputs(
         copyNativeLibraries.getStrippedObjectDescriptions().stream()
             .map(StrippedObjectDescription::getSourcePath)
             .collect(MoreCollectors.toImmutableSet()));

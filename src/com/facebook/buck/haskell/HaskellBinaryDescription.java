@@ -32,12 +32,12 @@ import com.facebook.buck.rules.BinaryWrapperRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
@@ -45,6 +45,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -58,9 +59,9 @@ import java.util.Optional;
 public class HaskellBinaryDescription implements
     Description<HaskellBinaryDescription.Arg>,
     ImplicitDepsInferringDescription<HaskellBinaryDescription.Arg>,
-    Flavored {
+    Flavored,
+    VersionRoot<HaskellBinaryDescription.Arg> {
 
-  private static final BuildRuleType TYPE = BuildRuleType.of("haskell_binary");
   private static final FlavorDomain<Type> BINARY_TYPE =
       FlavorDomain.from("Haskell Binary Type", Type.class);
 
@@ -74,11 +75,6 @@ public class HaskellBinaryDescription implements
     this.haskellConfig = haskellConfig;
     this.cxxPlatforms = cxxPlatforms;
     this.defaultCxxPlatform = defaultCxxPlatform;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -105,7 +101,8 @@ public class HaskellBinaryDescription implements
       A args)
       throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
         defaultCxxPlatform);
     Linker.LinkableDepType depType = getLinkStyle(params.getBuildTarget(), args);
@@ -167,6 +164,7 @@ public class HaskellBinaryDescription implements
                 params,
                 resolver,
                 pathResolver,
+                ruleFinder,
                 cxxPlatform,
                 haskellConfig,
                 depType,
@@ -177,6 +175,7 @@ public class HaskellBinaryDescription implements
                     params.getBuildTarget(),
                     resolver,
                     pathResolver,
+                    ruleFinder,
                     cxxPlatform,
                     "srcs",
                     args.srcs)));
@@ -192,6 +191,7 @@ public class HaskellBinaryDescription implements
             params,
             resolver,
             pathResolver,
+            ruleFinder,
             cxxPlatform,
             haskellConfig,
             Linker.LinkType.EXECUTABLE,
@@ -201,7 +201,7 @@ public class HaskellBinaryDescription implements
                 .filter(NativeLinkable.class),
             depType);
 
-    return new BinaryWrapperRule(params.appendExtraDeps(linkRule), pathResolver) {
+    return new BinaryWrapperRule(params.appendExtraDeps(linkRule), pathResolver, ruleFinder) {
 
       @Override
       public Tool getExecutableCommand() {
@@ -241,6 +241,11 @@ public class HaskellBinaryDescription implements
     }
 
     return false;
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   protected enum Type implements FlavorConvertible {

@@ -28,18 +28,21 @@ import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
 import java.nio.file.Paths;
+import java.util.Optional;
 
 public class RustCompileTest {
   @Test(expected = HumanReadableException.class)
@@ -77,7 +80,7 @@ public class RustCompileTest {
   private static Tool fakeTool() {
     return new Tool() {
       @Override
-      public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
+      public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
         return ImmutableSortedSet.of();
       }
 
@@ -92,7 +95,7 @@ public class RustCompileTest {
       }
 
       @Override
-      public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+      public ImmutableMap<String, String> getEnvironment() {
         return ImmutableMap.of();
       }
 
@@ -109,15 +112,16 @@ public class RustCompileTest {
         ImmutableSortedSet<SourcePath> srcs) {
       super(
           new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance(target)).build(),
-          new SourcePathResolver(
+          new SourcePathResolver(new SourcePathRuleFinder(
               new BuildRuleResolver(
                   TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer())),
+                  new DefaultTargetNodeToBuildRuleTransformer()))),
           "myname",
+          /* crateRoot */ Optional.empty(),
           srcs,
           /* flags */ ImmutableList.of(),
           /* features */ ImmutableSortedSet.of(),
-          /* nativePaths */ ImmutableSortedSet.of(),
+          /* nativePaths */ ImmutableSet.of(),
           Paths.get("somewhere"),
           () -> fakeTool(),
           () -> fakeTool(),
@@ -126,8 +130,8 @@ public class RustCompileTest {
     }
 
     @Override
-    protected String getDefaultSource() {
-      return "main.rs";
+    protected ImmutableSet<String> getDefaultSources() {
+      return ImmutableSet.of("main.rs");
     }
   }
 }

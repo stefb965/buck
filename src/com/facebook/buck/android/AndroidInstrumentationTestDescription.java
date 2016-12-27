@@ -22,12 +22,12 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -38,8 +38,6 @@ import java.util.Optional;
 public class AndroidInstrumentationTestDescription
     implements Description<AndroidInstrumentationTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_instrumentation_test");
-
   private final JavaOptions javaOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
@@ -48,11 +46,6 @@ public class AndroidInstrumentationTestDescription
       Optional<Long> defaultTestRuleTimeoutMs) {
     this.javaOptions = javaOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -80,7 +73,7 @@ public class AndroidInstrumentationTestDescription
         params.appendExtraDeps(
             BuildRules.getExportedRules(
                 params.getDeclaredDeps().get())),
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         (InstallableApk) apk,
         args.labels,
         args.contacts,

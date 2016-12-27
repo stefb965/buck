@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
@@ -30,7 +31,7 @@ import java.util.Objects;
 /**
  * An {@link Arg} which wraps a {@link SourcePath}.
  */
-public class SourcePathArg extends Arg {
+public class SourcePathArg extends Arg implements HasSourcePath {
 
   private final SourcePathResolver pathResolver;
   private final SourcePath path;
@@ -56,8 +57,8 @@ public class SourcePathArg extends Arg {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return resolver.filterBuildRuleInputs(path);
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return ruleFinder.filterBuildRuleInputs(path);
   }
 
   @Override
@@ -106,4 +107,13 @@ public class SourcePathArg extends Arg {
     return from(pathResolver, ImmutableList.copyOf(paths));
   }
 
+  @Override
+  public SourcePath getPath() {
+    return path;
+  }
+
+  @Override
+  public SourcePathResolver getPathResolver() {
+    return pathResolver;
+  }
 }

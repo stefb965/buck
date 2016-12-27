@@ -30,7 +30,6 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
@@ -38,6 +37,7 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -45,6 +45,8 @@ import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
@@ -57,14 +59,12 @@ import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.Optional;
 
 public class PythonTestDescription implements
     Description<PythonTestDescription.Arg>,
-    ImplicitDepsInferringDescription<PythonTestDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("python_test");
+    ImplicitDepsInferringDescription<PythonTestDescription.Arg>,
+    VersionRoot<PythonTestDescription.Arg> {
 
   private static final Flavor BINARY_FLAVOR = ImmutableFlavor.of("binary");
 
@@ -96,11 +96,6 @@ public class PythonTestDescription implements
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatforms = cxxPlatforms;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -165,9 +160,12 @@ public class PythonTestDescription implements
 
     String contents = getTestModulesListContents(testModules);
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+
     return new WriteFile(
         newParams,
-        new SourcePathResolver(resolver),
+        pathResolver,
         contents,
         outputPath,
         /* executable */ false);
@@ -187,46 +185,35 @@ public class PythonTestDescription implements
                     pythonPlatforms.getFlavors().iterator().next())));
     CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget()).orElse(
         defaultCxxPlatform);
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
+    Optional<ImmutableMap<BuildTarget, Version>> selectedVersions =
+        targetGraph.get(params.getBuildTarget()).getSelectedVersions();
 
     ImmutableMap<Path, SourcePath> srcs =
-        ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "srcs",
-                    baseModule,
-                    Collections.singleton(args.srcs)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformSrcs",
-                    baseModule,
-                    args.platformSrcs
-                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build();
+        PythonUtil.getModules(
+            params.getBuildTarget(),
+            pathResolver,
+            "srcs",
+            baseModule,
+            args.srcs,
+            args.platformSrcs,
+            pythonPlatform,
+            args.versionedSrcs,
+            selectedVersions);
 
     ImmutableMap<Path, SourcePath> resources =
-        ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "resources",
-                    baseModule,
-                    Collections.singleton(args.resources)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformResources",
-                    baseModule,
-                    args.platformResources
-                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build();
+        PythonUtil.getModules(
+            params.getBuildTarget(),
+            pathResolver,
+            "resources",
+            baseModule,
+            args.resources,
+            args.platformResources,
+            pythonPlatform,
+            args.versionedResources,
+            selectedVersions);
 
     // Convert the passed in module paths into test module names.
     ImmutableSet.Builder<String> testModulesBuilder = ImmutableSet.builder();
@@ -273,6 +260,7 @@ public class PythonTestDescription implements
             params,
             resolver,
             pathResolver,
+            ruleFinder,
             testComponents,
             pythonPlatform,
             cxxBuckConfig,
@@ -290,13 +278,14 @@ public class PythonTestDescription implements
     // Build the PEX using a python binary rule with the minimum dependencies.
     BuildRuleParams binaryParams = params.copyWithChanges(
         getBinaryBuildTarget(params.getBuildTarget()),
-        Suppliers.ofInstance(PythonUtil.getDepsFromComponents(pathResolver, allComponents)),
+        Suppliers.ofInstance(PythonUtil.getDepsFromComponents(ruleFinder, allComponents)),
         Suppliers.ofInstance(ImmutableSortedSet.of()));
     PythonBinary binary =
         binaryDescription.createPackageRule(
             binaryParams,
             resolver,
             pathResolver,
+            ruleFinder,
             pythonPlatform,
             cxxPlatform,
             mainModule,
@@ -363,6 +352,7 @@ public class PythonTestDescription implements
                     .build()),
             params.getExtraDeps()),
         pathResolver,
+        ruleFinder,
         testEnv,
         binary,
         args.labels,
@@ -392,6 +382,11 @@ public class PythonTestDescription implements
     return targets.build();
   }
 
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
+  }
+
   @SuppressFieldNotInitialized
   public static class Arg extends PythonLibraryDescription.Arg {
     public Optional<String> mainModule;
@@ -408,6 +403,7 @@ public class PythonTestDescription implements
 
     public ImmutableMap<String, String> env = ImmutableMap.of();
     public Optional<Long> testRuleTimeoutMs;
+    public Optional<String> versionUniverse;
   }
 
 }

@@ -32,7 +32,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
@@ -40,6 +39,7 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
@@ -47,6 +47,7 @@ import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -63,11 +64,10 @@ import java.util.Set;
 
 public class PythonBinaryDescription implements
     Description<PythonBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription<PythonBinaryDescription.Arg> {
+    ImplicitDepsInferringDescription<PythonBinaryDescription.Arg>,
+    VersionRoot<PythonBinaryDescription.Arg> {
 
   private static final Logger LOG = Logger.get(PythonBinaryDescription.class);
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("python_binary");
 
   private final PythonBuckConfig pythonBuckConfig;
   private final FlavorDomain<PythonPlatform> pythonPlatforms;
@@ -86,11 +86,6 @@ public class PythonBinaryDescription implements
     this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxPlatform = defaultCxxPlatform;
     this.cxxPlatforms = cxxPlatforms;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -154,6 +149,7 @@ public class PythonBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String mainModule,
@@ -195,6 +191,7 @@ public class PythonBinaryDescription implements
     return new PythonInPlaceBinary(
         params,
         pathResolver,
+        ruleFinder,
         resolver,
         pythonPlatform,
         cxxPlatform,
@@ -211,6 +208,7 @@ public class PythonBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
       String mainModule,
@@ -227,6 +225,7 @@ public class PythonBinaryDescription implements
             params,
             resolver,
             pathResolver,
+            ruleFinder,
             pythonPlatform,
             cxxPlatform,
             mainModule,
@@ -236,15 +235,16 @@ public class PythonBinaryDescription implements
 
       case STANDALONE:
         ImmutableSortedSet<BuildRule> componentDeps =
-            PythonUtil.getDepsFromComponents(pathResolver, components);
+            PythonUtil.getDepsFromComponents(ruleFinder, components);
         Tool pexTool = pythonBuckConfig.getPexTool(resolver);
         return new PythonPackagedBinary(
             params.appendExtraDeps(
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .addAll(componentDeps)
-                    .addAll(pexTool.getDeps(pathResolver))
+                    .addAll(pexTool.getDeps(ruleFinder))
                     .build()),
             pathResolver,
+            ruleFinder,
             pythonPlatform,
             pexTool,
             buildArgs,
@@ -279,7 +279,8 @@ public class PythonBinaryDescription implements
 
     String mainModule;
     ImmutableMap.Builder<Path, SourcePath> modules = ImmutableMap.builder();
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     // If `main` is set, add it to the map of modules for this binary and also set it as the
     // `mainModule`, otherwise, use the explicitly set main module.
@@ -315,6 +316,7 @@ public class PythonBinaryDescription implements
             params,
             resolver,
             pathResolver,
+            ruleFinder,
             binaryPackageComponents,
             pythonPlatform,
             cxxBuckConfig,
@@ -332,6 +334,7 @@ public class PythonBinaryDescription implements
         params,
         resolver,
         pathResolver,
+        ruleFinder,
         pythonPlatform,
         cxxPlatform,
         mainModule,
@@ -366,6 +369,11 @@ public class PythonBinaryDescription implements
     return targets.build();
   }
 
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
+  }
+
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg implements HasTests {
     public Optional<SourcePath> main;
@@ -385,6 +393,8 @@ public class PythonBinaryDescription implements
     public ImmutableSortedSet<BuildTarget> getTests() {
       return tests;
     }
+
+    public Optional<String> versionUniverse;
 
   }
 

@@ -28,8 +28,8 @@ import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 
 import java.nio.file.Path;
@@ -37,32 +37,13 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.StreamSupport;
 
 public class SourcePathResolver {
 
-  private final BuildRuleResolver ruleResolver;
+  private final SourcePathRuleFinder ruleFinder;
 
-  public SourcePathResolver(BuildRuleResolver ruleResolver) {
-    this.ruleResolver = ruleResolver;
-  }
-
-  /**
-   * Use either {@link #getRelativePath(SourcePath)} or {@link #getAbsolutePath(SourcePath)}
-   * depending on your needs.
-   */
-  public Path deprecatedGetPath(SourcePath sourcePath) {
-    Preconditions.checkState(
-        !(sourcePath instanceof ResourceSourcePath),
-        "ResourceSourcePath is not supported by deprecatedGetPath.");
-    return getPathPrivateImpl(sourcePath);
-  }
-
-  public ImmutableList<Path> deprecatedAllPaths(Iterable<? extends SourcePath> sourcePaths) {
-    // Maintain ordering and duplication if necessary.
-    return StreamSupport.stream(sourcePaths.spliterator(), false)
-        .map(this::deprecatedGetPath)
-        .collect(MoreCollectors.toImmutableList());
+  public SourcePathResolver(SourcePathRuleFinder ruleFinder) {
+    this.ruleFinder = ruleFinder;
   }
 
   public <T> ImmutableMap<T, Path> getMappedPaths(Map<T, SourcePath> sourcePathMap) {
@@ -81,7 +62,8 @@ public class SourcePathResolver {
       return ((PathSourcePath) sourcePath).getFilesystem();
     }
     if (sourcePath instanceof BuildTargetSourcePath) {
-      return getRule(sourcePath).get().getProjectFilesystem();
+      return ruleFinder.getRuleOrThrow((BuildTargetSourcePath) sourcePath)
+          .getProjectFilesystem();
     }
     throw new IllegalStateException();
   }
@@ -101,7 +83,7 @@ public class SourcePathResolver {
       return relative;
     }
 
-    Optional<BuildRule> rule = getRule(sourcePath);
+    Optional<BuildRule> rule = ruleFinder.getRule(sourcePath);
     if (rule.isPresent()) {
       return rule.get().getProjectFilesystem().resolve(relative);
     }
@@ -127,11 +109,18 @@ public class SourcePathResolver {
     return ArchiveMemberPath.of(archiveRelativePath, archiveMemberSourcePath.getMemberPath());
   }
 
-  public ImmutableList<Path> getAllAbsolutePaths(Collection<? extends SourcePath> sourcePaths) {
-    // Maintain ordering and duplication if necessary.
+  public ImmutableSortedSet<Path> getAllAbsolutePaths(
+      Collection<? extends SourcePath> sourcePaths) {
     return sourcePaths.stream()
         .map(this::getAbsolutePath)
-        .collect(MoreCollectors.toImmutableList());
+        .collect(MoreCollectors.toImmutableSortedSet());
+  }
+
+  public ImmutableSortedSet<Path> getAllRelativePaths(
+      Collection<? extends SourcePath> sourcePaths) {
+    return sourcePaths.stream()
+        .map(this::getRelativePath)
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   /**
@@ -168,7 +157,7 @@ public class SourcePathResolver {
     if (resolvedPath.isPresent()) {
       toReturn = resolvedPath.get();
     } else {
-      toReturn = ruleResolver.getRule(buildTargetSourcePath.getTarget()).getPathToOutput();
+      toReturn = ruleFinder.getRuleOrThrow(buildTargetSourcePath).getPathToOutput();
     }
 
     if (toReturn == null) {
@@ -178,18 +167,6 @@ public class SourcePathResolver {
     }
 
     return toReturn;
-  }
-
-  /**
-   * @return An {@link Optional} containing the {@link BuildRule} whose output {@code sourcePath}
-   *         refers to, or {@code absent} if {@code sourcePath} doesn't refer to the output of a
-   *         {@link BuildRule}.
-   */
-  public Optional<BuildRule> getRule(SourcePath sourcePath) {
-    if (!(sourcePath instanceof BuildTargetSourcePath)) {
-      return Optional.empty();
-    }
-    return Optional.of(ruleResolver.getRule(((BuildTargetSourcePath) sourcePath).getTarget()));
   }
 
   /**
@@ -242,7 +219,7 @@ public class SourcePathResolver {
   }
 
   private String getNameForBuildTargetSourcePath(BuildTargetSourcePath sourcePath) {
-    BuildRule rule = ruleResolver.getRule(sourcePath.getTarget());
+    BuildRule rule = ruleFinder.getRuleOrThrow(sourcePath);
 
     // If this build rule implements `HasOutputName`, then return the output name
     // it provides.
@@ -290,18 +267,4 @@ public class SourcePathResolver {
   public ImmutableCollection<Path> filterInputsToCompareToOutput(SourcePath... sources) {
     return filterInputsToCompareToOutput(Arrays.asList(sources));
   }
-
-  public ImmutableCollection<BuildRule> filterBuildRuleInputs(
-      Iterable<? extends SourcePath> sources) {
-    return FluentIterable.from(sources)
-        .filter(BuildTargetSourcePath.class)
-        .transform(
-            input -> ruleResolver.getRule(input.getTarget()))
-        .toList();
-  }
-
-  public ImmutableCollection<BuildRule> filterBuildRuleInputs(SourcePath... sources) {
-    return filterBuildRuleInputs(Arrays.asList(sources));
-  }
-
 }

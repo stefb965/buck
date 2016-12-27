@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
@@ -34,12 +35,12 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.DependencyMode;
@@ -55,7 +56,6 @@ import java.util.Optional;
 
 public class RobolectricTestDescription implements Description<RobolectricTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("robolectric_test");
 
   private final JavaOptions javaOptions;
   private final JavacOptions templateOptions;
@@ -74,31 +74,25 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
 
   @Override
-  public <A extends Arg> RobolectricTest createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    ImmutableList<String> vmArgs = args.vmArgs;
-
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
             templateOptions,
             params,
             resolver,
-            pathResolver,
+            ruleFinder,
             args);
 
     AndroidLibraryGraphEnhancer graphEnhancer = new AndroidLibraryGraphEnhancer(
@@ -110,6 +104,24 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
         /* forceFinalResourceIds */ true,
         /* resourceUnionPackage */ Optional.empty(),
         /* rName */ Optional.empty());
+
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      if (params.getBuildTarget().getFlavors().contains(
+          AndroidLibraryGraphEnhancer.DUMMY_R_DOT_JAVA_FLAVOR)) {
+        return graphEnhancer.getBuildableForAndroidResourcesAbi(resolver, pathResolver, ruleFinder);
+      }
+      BuildTarget testTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(testTarget);
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          ruleFinder,
+          params,
+          new BuildTargetSourcePath(testTarget));
+    }
+
+    ImmutableList<String> vmArgs = args.vmArgs;
+
     Optional<DummyRDotJava> dummyRDotJava = graphEnhancer.getBuildableForAndroidResources(
         resolver,
         /* createBuildableIfEmpty */ true);
@@ -131,6 +143,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             args.cxxLibraryWhitelist,
             resolver,
             pathResolver,
+            ruleFinder,
             cxxPlatform);
     params = cxxLibraryEnhancement.updatedParams;
 
@@ -138,19 +151,17 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
 
     // Rewrite dependencies on tests to actually depend on the code which backs the test.
     BuildRuleParams testsLibraryParams = params.copyWithDeps(
-            Suppliers.ofInstance(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(params.getDeclaredDeps().get())
-                    .addAll(BuildRules.getExportedRules(
-                        Iterables.concat(
-                            params.getDeclaredDeps().get(),
-                            resolver.getAllRules(args.providedDeps))))
-                    .addAll(pathResolver.filterBuildRuleInputs(
-                        javacOptions.getInputs(pathResolver)))
-                    .build()
-            ),
-            params.getExtraDeps()
-        )
+        Suppliers.ofInstance(
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .addAll(params.getDeclaredDeps().get())
+                .addAll(BuildRules.getExportedRules(
+                    Iterables.concat(
+                        params.getDeclaredDeps().get(),
+                        resolver.getAllRules(args.providedDeps))))
+                .addAll(ruleFinder.filterBuildRuleInputs(
+                    javacOptions.getInputs(ruleFinder)))
+                .build()),
+        params.getExtraDeps())
         .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
     JavaLibrary testsLibrary =
@@ -158,6 +169,7 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
             new DefaultJavaLibrary(
                 testsLibraryParams,
                 pathResolver,
+                ruleFinder,
                 args.srcs,
                 validateResources(
                     pathResolver,
@@ -169,7 +181,8 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                new BuildTargetSourcePath(abiJarTarget),
+                abiJarTarget,
+                JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
                 javacOptions.trackClassUsage(),
                 additionalClasspathEntries,
                 new JavacToJarStepFactory(javacOptions, new BootClasspathAppender()),
@@ -180,40 +193,30 @@ public class RobolectricTestDescription implements Description<RobolectricTestDe
                 /* classesToRemoveFromJar */ ImmutableSet.of()));
 
 
-    RobolectricTest robolectricTest =
-        resolver.addToIndex(
-            new RobolectricTest(
-                params.copyWithDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
-                pathResolver,
-                testsLibrary,
-                additionalClasspathEntries,
-                args.labels,
-                args.contacts,
-                TestType.JUNIT,
-                javaOptions,
-                vmArgs,
-                cxxLibraryEnhancement.nativeLibsEnvironment,
-                dummyRDotJava,
-                args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
-                args.testCaseTimeoutMs,
-                args.env,
-                args.getRunTestSeparately(),
-                args.getForkMode(),
-                args.stdOutLogLevel,
-                args.stdErrLogLevel,
-                args.robolectricRuntimeDependency,
-                args.robolectricManifest));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(testsLibrary.getBuildTarget())));
-
-    return robolectricTest;
+    return new RobolectricTest(
+        params.copyWithDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        pathResolver,
+        ruleFinder,
+        testsLibrary,
+        additionalClasspathEntries,
+        args.labels,
+        args.contacts,
+        TestType.JUNIT,
+        javaOptions,
+        vmArgs,
+        cxxLibraryEnhancement.nativeLibsEnvironment,
+        dummyRDotJava,
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.testCaseTimeoutMs,
+        args.env,
+        args.getRunTestSeparately(),
+        args.getForkMode(),
+        args.stdOutLogLevel,
+        args.stdErrLogLevel,
+        args.robolectricRuntimeDependency,
+        args.robolectricManifest);
   }
 
   @SuppressFieldNotInitialized

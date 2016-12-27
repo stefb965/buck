@@ -28,6 +28,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
@@ -90,13 +91,13 @@ public class Jsr199JavacIntegrationTest {
             "-d %s " +
             "-classpath '' " +
             "@" + pathToSrcsList.toString(),
-            JavaBuckConfig.TARGETED_JAVA_VERSION,
-            JavaBuckConfig.TARGETED_JAVA_VERSION,
+            JavacOptions.TARGETED_JAVA_VERSION,
+            JavacOptions.TARGETED_JAVA_VERSION,
             pathToOutputDir),
         javac.getDescription(
             ImmutableList.of(
-                "-source", JavaBuckConfig.TARGETED_JAVA_VERSION,
-                "-target", JavaBuckConfig.TARGETED_JAVA_VERSION,
+                "-source", JavacOptions.TARGETED_JAVA_VERSION,
+                "-target", JavacOptions.TARGETED_JAVA_VERSION,
                 "-g",
                 "-d", pathToOutputDir,
                 "-classpath", "''"),
@@ -120,13 +121,14 @@ public class Jsr199JavacIntegrationTest {
         executionContext.getClassLoaderCache(),
         executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
+        executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
         createProjectFilesystem(),
         NoOpClassUsageFileWriter.instance(),
-        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
         executionContext.getEnvironment(),
         executionContext.getProcessExecutor(),
-        ImmutableList.of());
+        ImmutableList.of(),
+        Optional.empty());
 
     int exitCode = javac.buildWithClasspath(
         javacExecutionContext,
@@ -135,7 +137,8 @@ public class Jsr199JavacIntegrationTest {
         ImmutableSet.of(),
         SOURCE_PATHS,
         pathToSrcsList,
-        Optional.empty());
+        Optional.empty(),
+        JavacOptions.AbiGenerationMode.CLASS);
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
     assertTrue(Files.exists(pathToSrcsList));
@@ -154,7 +157,7 @@ public class Jsr199JavacIntegrationTest {
       throws IOException, InterruptedException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule rule = new FakeBuildRule("//:fake", pathResolver);
     resolver.addToIndex(rule);
 
@@ -167,13 +170,14 @@ public class Jsr199JavacIntegrationTest {
         executionContext.getClassLoaderCache(),
         executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
+        executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
         createProjectFilesystem(),
         NoOpClassUsageFileWriter.instance(),
-        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
         executionContext.getEnvironment(),
         executionContext.getProcessExecutor(),
-        ImmutableList.of());
+        ImmutableList.of(),
+        Optional.empty());
 
     int exitCode = javac.buildWithClasspath(
         javacExecutionContext,
@@ -182,7 +186,8 @@ public class Jsr199JavacIntegrationTest {
         ImmutableSet.of(),
         SOURCE_PATHS,
         pathToSrcsList,
-        Optional.empty());
+        Optional.empty(),
+        JavacOptions.AbiGenerationMode.CLASS);
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
     assertTrue(Files.exists(pathToSrcsList));
@@ -241,7 +246,7 @@ public class Jsr199JavacIntegrationTest {
   public void shouldUseSpecifiedJavacJar() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule rule = new FakeBuildRule("//:fake", pathResolver);
     resolver.addToIndex(rule);
 
@@ -250,7 +255,7 @@ public class Jsr199JavacIntegrationTest {
     MockClassLoader mockClassLoader = new MockClassLoader(
         ClassLoader.getSystemClassLoader(),
         ImmutableMap.of(
-            "com.sun.tools.javac.api.JavacTool",
+            JavacOptions.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
             MockJavac.class));
     executionContext.getClassLoaderCache().injectClassLoader(
         ClassLoader.getSystemClassLoader(),
@@ -267,13 +272,14 @@ public class Jsr199JavacIntegrationTest {
         executionContext.getClassLoaderCache(),
         executionContext.getObjectMapper(),
         executionContext.getVerbosity(),
+        executionContext.getCellPathResolver(),
         executionContext.getJavaPackageFinder(),
         createProjectFilesystem(),
         NoOpClassUsageFileWriter.instance(),
-        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
         executionContext.getEnvironment(),
         executionContext.getProcessExecutor(),
-        ImmutableList.of(fakeJavacJar));
+        ImmutableList.of(fakeJavacJar),
+        Optional.empty());
 
     boolean caught = false;
 
@@ -285,7 +291,8 @@ public class Jsr199JavacIntegrationTest {
           ImmutableSet.of(),
           SOURCE_PATHS,
           pathToSrcsList,
-          Optional.empty());
+          Optional.empty(),
+          JavacOptions.AbiGenerationMode.CLASS);
       fail("Did not expect compilation to succeed");
     } catch (UnsupportedOperationException ex) {
       if (ex.toString().contains("abcdef")) {
@@ -317,7 +324,9 @@ public class Jsr199JavacIntegrationTest {
     Optional<SourcePath> jar = javacJar.map(
         SourcePaths.toSourcePath(new FakeProjectFilesystem())::apply);
     if (jar.isPresent()) {
-      return new JarBackedJavac("com.sun.tools.javac.api.JavacTool", ImmutableSet.of(jar.get()));
+      return new JarBackedJavac(
+          JavacOptions.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
+          ImmutableSet.of(jar.get()));
     }
 
     return new JdkProvidedInMemoryJavac();

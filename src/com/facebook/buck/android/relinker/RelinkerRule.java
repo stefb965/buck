@@ -19,6 +19,7 @@ import com.facebook.buck.android.NdkCxxPlatforms;
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.ImmutableFlavor;
@@ -32,6 +33,7 @@ import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
@@ -79,6 +81,7 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
   public RelinkerRule(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ImmutableSortedSet<SourcePath> symbolsNeededPaths,
       NdkCxxPlatforms.TargetCpuType cpuType,
       Tool objdump,
@@ -87,7 +90,7 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
       boolean isRelinkable,
       Linker linker,
       ImmutableList<Arg> linkerArgs) {
-    super(withDepsFromArgs(buildRuleParams, resolver, linkerArgs), resolver);
+    super(withDepsFromArgs(buildRuleParams, ruleFinder, linkerArgs), resolver);
     this.cpuType = cpuType;
     this.objdump = objdump;
     this.cxxBuckConfig = cxxBuckConfig;
@@ -101,10 +104,10 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
 
   private static BuildRuleParams withDepsFromArgs(
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ImmutableList<Arg> args) {
     return params.appendExtraDeps(
-        Iterables.concat(Iterables.transform(args, arg -> arg.getDeps(resolver))));
+        Iterables.concat(Iterables.transform(args, arg -> arg.getDeps(ruleFinder))));
   }
 
   private static String getVersionScript(Set<String> needed, Set<String> provided) {
@@ -157,7 +160,9 @@ class RelinkerRule extends AbstractBuildRule implements OverrideScheduleRule {
 
       relinkerSteps.addAll(
           new CxxLink(
-              buildRuleParams.withFlavor(ImmutableFlavor.of("cxx-link")),
+              buildRuleParams
+                  .withFlavor(ImmutableFlavor.of("cxx-link"))
+                  .withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
               getResolver(),
               linker,
               getLibFilePath(),

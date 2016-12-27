@@ -25,8 +25,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
-import com.facebook.buck.rules.keys.InputBasedRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
@@ -103,9 +103,9 @@ public class SymlinkTreeTest {
     // Setup the symlink tree buildable.
     symlinkTreeBuildRule = new SymlinkTree(
         new FakeBuildRuleParamsBuilder(buildTarget).build(),
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer())),
+                new DefaultTargetNodeToBuildRuleTransformer()))),
         outputPath,
         links);
 
@@ -121,9 +121,9 @@ public class SymlinkTreeTest {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
     // Verify the build steps are as expected.
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     ImmutableList<Step> expectedBuildSteps =
         ImmutableList.of(
             new MakeCleanDirectoryStep(filesystem, outputPath),
@@ -150,26 +150,27 @@ public class SymlinkTreeTest {
     Files.write(aFile, "hello world".getBytes(Charsets.UTF_8));
     AbstractBuildRule modifiedSymlinkTreeBuildRule = new SymlinkTree(
         new FakeBuildRuleParamsBuilder(buildTarget).build(),
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer())),
+                new DefaultTargetNodeToBuildRuleTransformer()))),
         outputPath,
         ImmutableMap.of(
             Paths.get("different/link"),
             new PathSourcePath(
                 projectFilesystem,
                 MorePaths.relativize(tmpDir.getRoot(), aFile))));
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
     );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
     // Calculate their rule keys and verify they're different.
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of());
-    RuleKey key1 = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
+    RuleKey key1 = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder).build(
         symlinkTreeBuildRule);
-    RuleKey key2 = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
+    RuleKey key2 = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder).build(
         modifiedSymlinkTreeBuildRule);
     assertNotEquals(key1, key2);
   }
@@ -180,24 +181,25 @@ public class SymlinkTreeTest {
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
     ruleResolver.addToIndex(symlinkTreeBuildRule);
-    SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
 
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+    DefaultRuleKeyFactory ruleKeyFactory = new DefaultRuleKeyFactory(
         0,
         FakeFileHashCache.createFromStrings(
             ImmutableMap.of()),
-        resolver);
+        resolver,
+        ruleFinder);
 
     // Calculate the rule key
-    RuleKey key1 = ruleKeyBuilderFactory.build(symlinkTreeBuildRule);
+    RuleKey key1 = ruleKeyFactory.build(symlinkTreeBuildRule);
 
     // Change the contents of the target of the link.
-    Path existingFile =
-        projectFilesystem.resolve(resolver.deprecatedGetPath(links.values().asList().get(0)));
+    Path existingFile = resolver.getAbsolutePath(links.values().asList().get(0));
     Files.write(existingFile, "something new".getBytes(Charsets.UTF_8));
 
     // Re-calculate the rule key
-    RuleKey key2 = ruleKeyBuilderFactory.build(symlinkTreeBuildRule);
+    RuleKey key2 = ruleKeyFactory.build(symlinkTreeBuildRule);
 
     // Verify that the rules keys are the same.
     assertEquals(key1, key2);
@@ -208,14 +210,16 @@ public class SymlinkTreeTest {
   public void testSymlinkTreeInputBasedRuleKeysAreImmuneToDependencyChanges() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of());
-    InputBasedRuleKeyBuilderFactory inputBasedRuleKeyBuilderFactory =
-        new InputBasedRuleKeyBuilderFactory(
+    InputBasedRuleKeyFactory inputBasedRuleKeyFactory =
+        new InputBasedRuleKeyFactory(
             0,
             hashCache,
-            pathResolver);
+            pathResolver,
+            ruleFinder);
 
     FakeBuildRule dep = new FakeBuildRule("//:dep", pathResolver);
     symlinkTreeBuildRule =
@@ -223,20 +227,20 @@ public class SymlinkTreeTest {
             new FakeBuildRuleParamsBuilder(buildTarget)
                 .setDeclaredDeps(ImmutableSortedSet.of(dep))
                 .build(),
-            new SourcePathResolver(
+            new SourcePathResolver(new SourcePathRuleFinder(
                 new BuildRuleResolver(
                     TargetGraph.EMPTY,
-                    new DefaultTargetNodeToBuildRuleTransformer())),
+                    new DefaultTargetNodeToBuildRuleTransformer()))),
             outputPath,
             links);
 
     // Generate an input-based rule key for the symlink tree.
     RuleKey ruleKey1 =
-        inputBasedRuleKeyBuilderFactory.build(symlinkTreeBuildRule).get();
+        inputBasedRuleKeyFactory.build(symlinkTreeBuildRule);
 
     // Change the dep's rule key and re-calculate the input-based rule key.
     RuleKey ruleKey2 =
-        inputBasedRuleKeyBuilderFactory.build(symlinkTreeBuildRule).get();
+        inputBasedRuleKeyFactory.build(symlinkTreeBuildRule);
 
     // Verify that the rules keys are the same.
     assertEquals(ruleKey1, ruleKey2);
@@ -248,7 +252,8 @@ public class SymlinkTreeTest {
       throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     Genrule dep =
         (Genrule) GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
@@ -270,25 +275,27 @@ public class SymlinkTreeTest {
     // target hashing to "aaaa".
     FakeFileHashCache hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of("out", "aaaa"));
-    InputBasedRuleKeyBuilderFactory inputBasedRuleKeyBuilderFactory =
-        new InputBasedRuleKeyBuilderFactory(
+    InputBasedRuleKeyFactory inputBasedRuleKeyFactory =
+        new InputBasedRuleKeyFactory(
             0,
             hashCache,
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     RuleKey ruleKey1 =
-        inputBasedRuleKeyBuilderFactory.build(symlinkTreeBuildRule).get();
+        inputBasedRuleKeyFactory.build(symlinkTreeBuildRule);
 
     // Generate an input-based rule key for the symlink tree with the contents of the link
     // target hashing to a different value: "bbbb".
     hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of("out", "bbbb"));
-    inputBasedRuleKeyBuilderFactory =
-        new InputBasedRuleKeyBuilderFactory(
+    inputBasedRuleKeyFactory =
+        new InputBasedRuleKeyFactory(
             0,
             hashCache,
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     RuleKey ruleKey2 =
-        inputBasedRuleKeyBuilderFactory.build(symlinkTreeBuildRule).get();
+        inputBasedRuleKeyFactory.build(symlinkTreeBuildRule);
 
     // Verify that the rules keys are the same.
     assertEquals(ruleKey1, ruleKey2);
@@ -298,7 +305,7 @@ public class SymlinkTreeTest {
   public void verifyStepFailsIfKeyContainsDotDot() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     SymlinkTree symlinkTree =
         new SymlinkTree(
             new FakeBuildRuleParamsBuilder(buildTarget).build(),
@@ -318,7 +325,7 @@ public class SymlinkTreeTest {
   public void resolveDuplicateRelativePathsIsNoopWhenThereAreNoDuplicates() {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
 
     ImmutableSortedSet<SourcePath> sourcePaths = ImmutableSortedSet.of(
         new FakeSourcePath("one"),
@@ -344,7 +351,7 @@ public class SymlinkTreeTest {
   public void resolveDuplicateRelativePaths() throws IOException {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     tmp.getRoot().resolve("one").toFile().mkdir();
     tmp.getRoot().resolve("two").toFile().mkdir();
     ProjectFilesystem fsOne = new ProjectFilesystem(tmp.getRoot().resolve("one"));
@@ -368,7 +375,7 @@ public class SymlinkTreeTest {
   public void resolveDuplicateRelativePathsWithConflicts() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver resolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
     tmp.getRoot().resolve("a-fs").toFile().mkdir();
     tmp.getRoot().resolve("b-fs").toFile().mkdir();
     tmp.getRoot().resolve("c-fs").toFile().mkdir();

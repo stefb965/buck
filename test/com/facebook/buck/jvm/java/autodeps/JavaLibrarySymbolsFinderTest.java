@@ -37,8 +37,9 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
@@ -131,9 +132,10 @@ public class JavaLibrarySymbolsFinderTest {
         shouldRecordRequiredSymbols);
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
-    // DefaultRuleKeyBuilderFactory.
+    // DefaultRuleKeyFactory.
+    final SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
     final SourcePathResolver pathResolver = createMock(SourcePathResolver.class);
-    expect(pathResolver.getRule(anyObject(SourcePath.class)))
+    expect(ruleFinder.getRule(anyObject(SourcePath.class)))
         .andAnswer(() -> {
           SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
           if (input instanceof BuildTargetSourcePath) {
@@ -163,10 +165,11 @@ public class JavaLibrarySymbolsFinderTest {
     // Calculates the RuleKey for a JavaSymbolsRule with the specified JavaLibrarySymbolsFinder.
     final FileHashCache fileHashCache =
         DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem);
-    final DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory = new DefaultRuleKeyBuilderFactory(
+    final DefaultRuleKeyFactory ruleKeyFactory = new DefaultRuleKeyFactory(
         0,
         fileHashCache,
-        pathResolver);
+        pathResolver,
+        ruleFinder);
     Function<JavaLibrarySymbolsFinder, RuleKey> createRuleKey =
         finder -> {
           JavaSymbolsRule javaSymbolsRule = new JavaSymbolsRule(
@@ -176,7 +179,7 @@ public class JavaLibrarySymbolsFinderTest {
               ObjectMappers.newDefaultInstance(),
               projectFilesystem
           );
-          return ruleKeyBuilderFactory.newInstance(javaSymbolsRule).build();
+          return ruleKeyFactory.build(javaSymbolsRule);
         };
 
     RuleKey key1 = createRuleKey.apply(example1Finder);

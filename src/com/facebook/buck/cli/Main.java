@@ -114,7 +114,6 @@ import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.cache.WatchedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.concurrent.TimeSpan;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.CommandMode;
@@ -131,19 +130,20 @@ import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfa
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
+import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.EventBus;
 import com.google.common.reflect.ClassPath;
-import com.google.common.util.concurrent.AbstractScheduledService;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.ServiceManager;
 import com.martiansoftware.nailgun.NGContext;
+import com.martiansoftware.nailgun.NGListeningAddress;
 import com.martiansoftware.nailgun.NGServer;
 import com.sun.jna.LastErrorException;
 import com.sun.jna.Native;
@@ -160,6 +160,8 @@ import java.io.PrintStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystems;
 import java.nio.file.LinkOption;
@@ -167,7 +169,9 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
@@ -205,13 +209,11 @@ public final class Main {
 
   private static final String BUCKD_COLOR_DEFAULT_ENV_VAR = "BUCKD_COLOR_DEFAULT";
 
-  private static final TimeSpan DAEMON_SLAYER_TIMEOUT = new TimeSpan(2, TimeUnit.HOURS);
+  private static final Duration DAEMON_SLAYER_TIMEOUT = Duration.ofDays(1);
 
-  private static final TimeSpan SUPER_CONSOLE_REFRESH_RATE =
-      new TimeSpan(100, TimeUnit.MILLISECONDS);
+  private static final Duration SUPER_CONSOLE_REFRESH_RATE = Duration.ofMillis(100);
 
-  private static final TimeSpan HANG_DETECTOR_TIMEOUT =
-      new TimeSpan(5, TimeUnit.MINUTES);
+  private static final Duration HANG_DETECTOR_TIMEOUT = Duration.ofMinutes(5);
 
   /**
    * Path to a directory of static content that should be served by the {@link WebServer}.
@@ -290,6 +292,9 @@ public final class Main {
 
   private static boolean isSessionLeader;
 
+  @Nullable
+  private static FileLock resourcesFileLock = null;
+
   private static final HangMonitor.AutoStartInstance HANG_MONITOR =
       new HangMonitor.AutoStartInstance(
           (input) -> {
@@ -331,6 +336,7 @@ public final class Main {
     private final EventBus fileEventBus;
     private final Optional<WebServer> webServer;
     private final ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools;
+    private final VersionedTargetGraphCache versionedTargetGraphCache;
     private final ActionGraphCache actionGraphCache;
     private final BroadcastEventListener broadcastEventListener;
 
@@ -350,6 +356,7 @@ public final class Main {
 
       this.broadcastEventListener = new BroadcastEventListener();
       this.actionGraphCache = new ActionGraphCache(broadcastEventListener);
+      this.versionedTargetGraphCache = new VersionedTargetGraphCache();
 
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory(objectMapper);
       this.parser = new Parser(
@@ -369,13 +376,9 @@ public final class Main {
       if (!initWebServer()) {
         LOG.warn("Can't start web server");
       }
-      Optional<WatchmanWatcher.CursorType> watchmanCursorType = cell.getBuckConfig().getEnum(
-          "project",
-          "watchman_cursor",
-          WatchmanWatcher.CursorType.class);
       ImmutableMap.Builder<Path, WatchmanCursor> cursorBuilder = ImmutableMap.builder();
-      if (watchmanCursorType.isPresent() &&
-          watchmanCursorType.get() == WatchmanWatcher.CursorType.CLOCK_ID &&
+      if (cell.getBuckConfig().getView(ParserConfig.class).getWatchmanCursor() ==
+          WatchmanWatcher.CursorType.CLOCK_ID &&
           !cell.getWatchman().getClockIds().isEmpty()) {
         for (Map.Entry<Path, String> entry : cell.getWatchman().getClockIds().entrySet()) {
           cursorBuilder.put(entry.getKey(), new WatchmanCursor(entry.getValue()));
@@ -448,6 +451,10 @@ public final class Main {
 
     private Parser getParser() {
       return parser;
+    }
+
+    private VersionedTargetGraphCache getVersionedTargetGraphCache() {
+      return versionedTargetGraphCache;
     }
 
     private ActionGraphCache getActionGraphCache() {
@@ -821,7 +828,7 @@ public final class Main {
     ImmutableSet<Path> projectWatchList = ImmutableSet.<Path>builder()
       .add(canonicalRootPath)
       .addAll(
-          config.getBooleanValue("project", "watch_cells", false) ?
+          buckConfig.getView(ParserConfig.class).getWatchCells() ?
               cellPathResolver.getTransitivePathMapping().values() :
               ImmutableList.of())
       .build();
@@ -956,7 +963,6 @@ public final class Main {
         ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
         ExecutionEnvironment executionEnvironment = new DefaultExecutionEnvironment(
             clientEnvironment,
-            // TODO(bhamiltoncx): Thread through properties from client environment.
             System.getProperties());
 
         FileHashCache cellHashCache;
@@ -1049,6 +1055,8 @@ public final class Main {
         // to the other resources before they are closed.
         InvocationInfo invocationInfo = InvocationInfo.of(
             buildId,
+            isSuperConsoleEnabled(console),
+            isDaemon,
             command.getSubCommandNameForLogging(),
             filesystem.getBuckPaths().getLogDir());
         try (
@@ -1089,7 +1097,11 @@ public final class Main {
                 invocationInfo);
             ProcessTracker processTracker =
                 buckConfig.isProcessTrackerEnabled() && platform != Platform.WINDOWS ?
-                    new ProcessTracker(buildEventBus, invocationInfo, isDaemon) : null;
+                    new ProcessTracker(
+                        buildEventBus,
+                        invocationInfo,
+                        isDaemon,
+                        buckConfig.isProcessTrackerDeepEnabled()) : null;
         ) {
 
           LOG.debug(invocationInfo.toLogLine(args));
@@ -1117,6 +1129,13 @@ public final class Main {
                   executionEnvironment,
                   buckConfig);
 
+          Iterable<BuckEventListener> commandEventListeners =
+              command.getSubcommand().isPresent() ?
+                  command
+                      .getSubcommand()
+                      .get()
+                      .getEventListeners(invocationInfo.getLogDirectoryPath(), filesystem) :
+                  ImmutableList.of();
           eventListeners = addEventListeners(
               buildEventBus,
               rootCell.getFilesystem(),
@@ -1128,13 +1147,13 @@ public final class Main {
               consoleListener,
               rootCell.getKnownBuildRuleTypes(),
               clientEnvironment,
-              counterRegistry
+              counterRegistry,
+              commandEventListeners
           );
 
           if (buckConfig.isPublicAnnouncementsEnabled()) {
             PublicAnnouncementManager announcementManager = new PublicAnnouncementManager(
                 clock,
-                executionEnvironment,
                 buildEventBus,
                 consoleListener,
                 buckConfig.getRepository().orElse("unknown"),
@@ -1186,6 +1205,7 @@ public final class Main {
 
           // Create or get Parser and invalidate cached command parameters.
           Parser parser = null;
+          VersionedTargetGraphCache versionedTargetGraphCache = null;
           ActionGraphCache actionGraphCache = null;
 
           if (isDaemon) {
@@ -1207,6 +1227,7 @@ public final class Main {
                   buildEventBus,
                   watchmanWatcher,
                   watchmanFreshInstanceAction);
+              versionedTargetGraphCache = daemon.getVersionedTargetGraphCache();
               actionGraphCache = daemon.getActionGraphCache();
             } catch (WatchmanWatcherException | IOException e) {
               buildEventBus.post(
@@ -1214,6 +1235,10 @@ public final class Main {
                       "Watchman threw an exception while parsing file changes.\n%s",
                       e.getMessage()));
             }
+          }
+
+          if (versionedTargetGraphCache == null) {
+            versionedTargetGraphCache = new VersionedTargetGraphCache();
           }
 
           if (actionGraphCache == null) {
@@ -1286,6 +1311,7 @@ public final class Main {
                   .setFileHashCache(fileHashCache)
                   .setExecutors(executors)
                   .setBuildEnvironmentDescription(buildEnvironmentDescription)
+                  .setVersionedTargetGraphCache(versionedTargetGraphCache)
                   .setActionGraphCache(actionGraphCache)
                   .setKnownBuildRuleTypesFactory(factory)
                   .setBuildStamper(new BuildStamper(vcsFactory))
@@ -1413,6 +1439,9 @@ public final class Main {
 
     } else {
       watchman = Watchman.NULL_WATCHMAN;
+      LOG.debug("Not using Watchman, context present: %s, glob handler: %s",
+          context.isPresent(),
+          parserConfig.getGlobHandler());
     }
     return watchman;
   }
@@ -1685,7 +1714,8 @@ public final class Main {
       AbstractConsoleEventBusListener consoleEventBusListener,
       KnownBuildRuleTypes knownBuildRuleTypes,
       ImmutableMap<String, String> environment,
-      CounterRegistry counterRegistry
+      CounterRegistry counterRegistry,
+      Iterable<BuckEventListener> commandSpecificEventListeners
   ) {
     ImmutableList.Builder<BuckEventListener> eventListenersBuilder =
         ImmutableList.<BuckEventListener>builder()
@@ -1752,12 +1782,15 @@ public final class Main {
     eventListenersBuilder.add(new CacheRateStatsListener(buckEventBus));
     eventListenersBuilder.add(new WatchmanDiagnosticEventListener(buckEventBus));
 
+    eventListenersBuilder.addAll(commandSpecificEventListeners);
+
     ImmutableList<BuckEventListener> eventListeners = eventListenersBuilder.build();
     eventListeners.forEach(buckEventBus::register);
 
 
     return eventListeners;
   }
+
 
   private BuildEnvironmentDescription getBuildEnvironmentDescription(
       ExecutionEnvironment executionEnvironment,
@@ -1779,12 +1812,7 @@ public final class Main {
       Optional<WebServer> webServer,
       Locale locale,
       Path testLogPath) {
-    Verbosity verbosity = console.getVerbosity();
-
-    if (Platform.WINDOWS != Platform.detect() &&
-        console.getAnsi().isAnsiTerminal() &&
-        !verbosity.shouldPrintCommand() &&
-        verbosity.shouldPrintStandardInformation()) {
+    if (isSuperConsoleEnabled(console)) {
       SuperConsoleEventBusListener superConsole = new SuperConsoleEventBusListener(
           config,
           console,
@@ -1796,8 +1824,8 @@ public final class Main {
           testLogPath,
           TimeZone.getDefault());
       superConsole.startRenderScheduler(
-          SUPER_CONSOLE_REFRESH_RATE.getDuration(),
-          SUPER_CONSOLE_REFRESH_RATE.getUnit());
+          SUPER_CONSOLE_REFRESH_RATE.toMillis(),
+          TimeUnit.MILLISECONDS);
       return superConsole;
     }
     SimpleConsoleEventBusListener consoleEventBusListener = new SimpleConsoleEventBusListener(
@@ -1809,6 +1837,13 @@ public final class Main {
         executionEnvironment);
     consoleEventBusListener.startRenderScheduler(1, TimeUnit.SECONDS);
     return consoleEventBusListener;
+  }
+
+  private boolean isSuperConsoleEnabled(Console console) {
+    return Platform.WINDOWS != Platform.detect() &&
+        console.getAnsi().isAnsiTerminal() &&
+        !console.getVerbosity().shouldPrintCommand() &&
+        console.getVerbosity().shouldPrintStandardInformation();
   }
 
   private static BuildId getBuildId(Optional<NGContext> context) {
@@ -1922,6 +1957,8 @@ public final class Main {
   }
 
   public static final class DaemonBootstrap {
+    private static @Nullable DaemonKillers daemonKillers;
+
     public static void main(String[] args) throws Exception {
       try {
         daemonizeIfPossible();
@@ -1933,7 +1970,87 @@ public final class Main {
         System.err.println(String.format("buckd: fatal error %s", ex));
         System.exit(1);
       }
-      NGServer.main(args);
+
+      if (args.length != 2) {
+        System.err.println("Usage: buckd socketpath heartbeatTimeout");
+        return;
+      }
+
+      String socketPath = args[0];
+      int heartbeatTimeout = Integer.parseInt(args[1]);
+      // Strip out optional local: prefix.  This server only use domain sockets.
+      if (socketPath.startsWith("local:")) {
+        socketPath = socketPath.substring("local:".length());
+      }
+      NGServer server = new NGServer(
+          new NGListeningAddress(socketPath),
+          NGServer.DEFAULT_SESSIONPOOLSIZE,
+          heartbeatTimeout);
+      daemonKillers = new DaemonKillers(server, Paths.get(socketPath));
+      server.run();
+    }
+
+    public static DaemonKillers getDaemonKillers() {
+      return Preconditions.checkNotNull(daemonKillers, "Daemon killers should be initialized.");
+    }
+  }
+
+  private static class DaemonKillers {
+    private static final ScheduledExecutorService daemonKillerExecutorService =
+        Executors.newSingleThreadScheduledExecutor();
+
+    private final NGServer server;
+    private final IdleKiller idleKiller;
+    private final SocketLossKiller socketLossKiller;
+
+    DaemonKillers(NGServer server, Path socketPath) {
+      this.server = server;
+      this.idleKiller = new IdleKiller(
+          daemonKillerExecutorService,
+          DAEMON_SLAYER_TIMEOUT,
+          this::killServer);
+      this.socketLossKiller = new SocketLossKiller(
+          daemonKillerExecutorService,
+          socketPath.toAbsolutePath(),
+          this::killServer);
+    }
+
+    IdleKiller.CommandExecutionScope newCommandExecutionScope() {
+      socketLossKiller.arm();  // Arm the socket loss killer also.
+      return idleKiller.newCommandExecutionScope();
+    }
+
+    private void killServer() {
+      server.shutdown(true);
+    }
+  }
+
+  /**
+   * To prevent 'buck kill' from deleting resources from underneath a 'live' buckd we hold on to
+   * the FileLock for the entire lifetime of the process. We depend on the fact that on Linux and
+   * MacOS Java FileLock is implemented using the same mechanism as the Python fcntl.lockf method.
+   * Should this not be the case we'll simply have a small race between buckd start and `buck kill`.
+   */
+  private static void obtainResourceFileLock() {
+    if (resourcesFileLock != null) {
+      return;
+    }
+    String resourceLockFilePath = System.getProperties().getProperty("buck.resource_lock_path");
+    if (resourceLockFilePath == null) {
+      // Running from ant, no resource lock needed.
+      return;
+    }
+    try {
+      // R+W+A is equivalent to 'a+' in Python (which is how the lock file is opened in Python)
+      // because WRITE in Java does not imply truncating the file.
+      FileChannel fileChannel = FileChannel.open(
+          Paths.get(resourceLockFilePath),
+          StandardOpenOption.READ,
+          StandardOpenOption.WRITE,
+          StandardOpenOption.CREATE);
+      resourcesFileLock = fileChannel.tryLock(0L, Long.MAX_VALUE, true);
+    } catch (IOException e) {
+      LOG.error(e, "Error when attempting to acquire resources file lock.");
     }
   }
 
@@ -1943,89 +2060,11 @@ public final class Main {
    * disconnections and interrupt command processing when they occur.
    */
   public static void nailMain(final NGContext context) throws InterruptedException {
-    try (DaemonSlayer.ExecuteCommandHandle handle =
-             DaemonSlayer.getSlayer(context).executeCommand()) {
+    obtainResourceFileLock();
+    try (IdleKiller.CommandExecutionScope ignored =
+             DaemonBootstrap.getDaemonKillers().newCommandExecutionScope()) {
       new Main(context.out, context.err, context.in)
           .runMainThenExit(context.getArgs(), Optional.of(context));
-    }
-  }
-
-
-  private static final class DaemonSlayer extends AbstractScheduledService {
-    private final NGContext context;
-    private final TimeSpan slayerTimeout;
-    private int runCount;
-    private int lastRunCount;
-    private boolean executingCommand;
-
-    private static final class DaemonSlayerInstance {
-      final DaemonSlayer daemonSlayer;
-
-      private DaemonSlayerInstance(DaemonSlayer daemonSlayer) {
-        this.daemonSlayer = daemonSlayer;
-      }
-    }
-
-    @Nullable
-    private static volatile DaemonSlayerInstance daemonSlayerInstance;
-
-    public static DaemonSlayer getSlayer(NGContext context) {
-      if (daemonSlayerInstance == null) {
-        synchronized (DaemonSlayer.class) {
-          if (daemonSlayerInstance == null) {
-            DaemonSlayer slayer = new DaemonSlayer(context);
-            ServiceManager manager = new ServiceManager(ImmutableList.of(slayer));
-            manager.startAsync();
-            daemonSlayerInstance = new DaemonSlayerInstance(slayer);
-          }
-        }
-      }
-      return daemonSlayerInstance.daemonSlayer;
-    }
-
-    private DaemonSlayer(NGContext context) {
-      this.context = context;
-      this.runCount = 0;
-      this.lastRunCount = 0;
-      this.executingCommand = false;
-      this.slayerTimeout = DAEMON_SLAYER_TIMEOUT;
-    }
-
-    public class ExecuteCommandHandle implements AutoCloseable {
-      private ExecuteCommandHandle() {
-        synchronized (DaemonSlayer.this) {
-          executingCommand = true;
-        }
-      }
-
-      @Override
-      public void close() {
-        synchronized (DaemonSlayer.this) {
-          runCount++;
-          executingCommand = false;
-        }
-      }
-    }
-
-    public ExecuteCommandHandle executeCommand() {
-      return new ExecuteCommandHandle();
-    }
-
-    @Override
-    protected synchronized void runOneIteration() throws Exception {
-      if (!executingCommand && runCount == lastRunCount) {
-        context.getNGServer().shutdown(/* exitVM */ true);
-      } else {
-        lastRunCount = runCount;
-      }
-    }
-
-    @Override
-    protected Scheduler scheduler() {
-      return Scheduler.newFixedRateSchedule(
-          slayerTimeout.getDuration(),
-          slayerTimeout.getDuration(),
-          slayerTimeout.getUnit());
     }
   }
 }

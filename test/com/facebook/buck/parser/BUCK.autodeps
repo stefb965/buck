@@ -36,10 +36,10 @@
       "//test/com/facebook/buck/cli:FakeBuckConfig",
       "//test/com/facebook/buck/event:testutil",
       "//test/com/facebook/buck/rules:testutil",
+      "//test/com/facebook/buck/testutil/integration:util",
       "//third-party/java/guava:guava"
     ],
     "exported_deps" : [
-      "//test/com/facebook/buck/testutil/integration:util",
       "//third-party/java/caliper:caliper",
       "//third-party/java/junit:junit"
     ]
@@ -113,8 +113,9 @@
       "//src/com/facebook/buck/rules/coercer:coercer",
       "//src/com/facebook/buck/rules/coercer:types",
       "//src/com/facebook/buck/util:exceptions",
-      "//src/com/facebook/buck/util:io",
       "//src/com/facebook/buck/util:object_mapper",
+      "//src/com/facebook/buck/util:process_executor",
+      "//src/com/facebook/buck/util:watchman",
       "//src/com/facebook/buck/util/concurrent:concurrent",
       "//src/com/facebook/buck/util/environment:platform",
       "//test/com/facebook/buck/cli:FakeBuckConfig",

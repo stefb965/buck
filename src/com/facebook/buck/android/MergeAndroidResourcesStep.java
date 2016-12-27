@@ -45,6 +45,7 @@ import java.io.PrintWriter;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -135,6 +136,9 @@ public class MergeAndroidResourcesStep implements Step {
   public ImmutableSortedSet<Path> getRDotJavaFiles() {
     return FluentIterable.from(androidResourceDeps)
         .transform(HasAndroidResourceDeps::getRDotJavaPackage)
+        .append(unionPackage
+            .map(Collections::singletonList)
+            .orElse(Collections.emptyList()))
         .transform(this::getPathToRDotJava)
         .toSortedSet(natural());
   }
@@ -202,16 +206,14 @@ public class MergeAndroidResourcesStep implements Step {
     // If a resource_union_package was specified, copy all resource into that package,
     // unless they are already present.
     if (unionPackage.isPresent()) {
-      Collection<RDotTxtEntry> target = rDotJavaPackageToResources.asMap().get(unionPackage.get());
-      if (target != null) {
-        // Create a temporary list to avoid concurrent modification problems.
-        for (Map.Entry<String, RDotTxtEntry> entry :
-            new ArrayList<>(rDotJavaPackageToResources.entries())) {
-          if (target.contains(entry.getValue())) {
-            continue;
-          }
-          target.add(entry.getValue());
+      String unionPackageName = unionPackage.get();
+      // Create a temporary list to avoid concurrent modification problems.
+      for (Map.Entry<String, RDotTxtEntry> entry :
+          new ArrayList<>(rDotJavaPackageToResources.entries())) {
+        if (rDotJavaPackageToResources.containsEntry(unionPackageName, entry.getValue())) {
+          continue;
         }
+        rDotJavaPackageToResources.put(unionPackageName, entry.getValue());
       }
     }
 
@@ -248,6 +250,7 @@ public class MergeAndroidResourcesStep implements Step {
         writer.format("public class %s {\n", rName);
 
         ImmutableList.Builder<String> customDrawablesBuilder = ImmutableList.builder();
+        ImmutableList.Builder<String> grayscaleImagesBuilder = ImmutableList.builder();
         RDotTxtEntry.RType lastType = null;
 
         for (RDotTxtEntry res : packageToResources.get(rDotJavaPackage)) {
@@ -272,8 +275,12 @@ public class MergeAndroidResourcesStep implements Step {
               res.name,
               res.idValue);
 
-          if (type == RDotTxtEntry.RType.DRAWABLE && res.custom) {
+          if (type == RDotTxtEntry.RType.DRAWABLE &&
+              res.customType == RDotTxtEntry.CustomDrawableType.CUSTOM) {
             customDrawablesBuilder.add(res.idValue);
+          } else if (type == RDotTxtEntry.RType.DRAWABLE &&
+              res.customType == RDotTxtEntry.CustomDrawableType.GRAYSCALE_IMAGE) {
+            grayscaleImagesBuilder.add(res.idValue);
           }
         }
 
@@ -288,6 +295,14 @@ public class MergeAndroidResourcesStep implements Step {
           // Add a new field for the custom drawables.
           writer.format("  public static final int[] custom_drawables = ");
           writer.format("{ %s };\n", Joiner.on(",").join(customDrawables));
+          writer.format("\n");
+        }
+
+        ImmutableList<String> grayscaleImages = grayscaleImagesBuilder.build();
+        if (grayscaleImages.size() > 0) {
+          // Add a new field for the custom drawables.
+          writer.format("  public static final int[] grayscale_images = ");
+          writer.format("{ %s };\n", Joiner.on(",").join(grayscaleImages));
           writer.format("\n");
         }
 

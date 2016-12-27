@@ -27,9 +27,9 @@ public interface Tool extends RuleKeyAppendable {
 
   /**
    * @return all {@link BuildRule}s this tool requires to run.
-   * @param resolver Used to resolve any build rules from {@link SourcePath}s.
+   * @param ruleFinder Used to find any build rules from {@link SourcePath}s.
    */
-  ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver);
+  ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder);
 
   /**
    * @return all {@link SourcePath}s this tool requires to run.
@@ -44,6 +44,6 @@ public interface Tool extends RuleKeyAppendable {
   /**
    * @return the list of environment variables to set when running the command.
    */
-  ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver);
+  ImmutableMap<String, String> getEnvironment();
 
 }

@@ -21,25 +21,21 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 
-public class LuaLibraryDescription implements Description<LuaLibraryDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("lua_library");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
+public class LuaLibraryDescription implements
+    Description<LuaLibraryDescription.Arg>,
+    VersionPropagator<LuaLibraryDescription.Arg> {
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -52,7 +48,8 @@ public class LuaLibraryDescription implements Description<LuaLibraryDescription.
       final BuildRuleParams params,
       BuildRuleResolver resolver,
       final A args) {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    final SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(resolver));
     return new LuaLibrary(params, pathResolver) {
       @Override
       public LuaPackageComponents getLuaPackageComponents() {

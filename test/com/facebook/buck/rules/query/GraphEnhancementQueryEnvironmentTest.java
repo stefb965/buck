@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.testutil.TargetGraphFactory;
@@ -122,16 +123,16 @@ public class GraphEnhancementQueryEnvironmentTest {
 
   private GraphEnhancementQueryEnvironment buildQueryEnvironmentWithGraph() {
     // Set up target graph: lib -> sublib -> bottom
-    TargetNode<JavaLibraryDescription.Arg> bottomNode =
+    TargetNode<JavaLibraryDescription.Arg, ?> bottomNode =
         JavaLibraryBuilder.createBuilder(
             BuildTargetFactory.newInstance("//:bottom"))
             .build();
-    TargetNode<JavaLibraryDescription.Arg> sublibNode =
+    TargetNode<JavaLibraryDescription.Arg, ?> sublibNode =
         JavaLibraryBuilder.createBuilder(
             BuildTargetFactory.newInstance("//:sublib"))
             .addDep(bottomNode.getBuildTarget())
             .build();
-    TargetNode<JavaLibraryDescription.Arg> libNode =
+    TargetNode<JavaLibraryDescription.Arg, ?> libNode =
         JavaLibraryBuilder.createBuilder(
             BuildTargetFactory.newInstance("//:lib"))
             .addDep(sublibNode.getBuildTarget())
@@ -143,7 +144,8 @@ public class GraphEnhancementQueryEnvironmentTest {
     BuildRuleResolver realResolver = new BuildRuleResolver(
         targetGraph,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(realResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(realResolver));
 
     FakeJavaLibrary bottomRule = realResolver.addToIndex(
         new FakeJavaLibrary(bottomNode.getBuildTarget(), pathResolver));

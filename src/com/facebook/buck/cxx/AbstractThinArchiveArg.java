@@ -20,7 +20,9 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.HasSourcePath;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -34,10 +36,12 @@ import org.immutables.value.Value;
  */
 @Value.Immutable
 @BuckStyleTuple
-abstract class AbstractThinArchiveArg extends Arg {
+abstract class AbstractThinArchiveArg extends Arg implements HasSourcePath {
 
-  protected abstract SourcePathResolver getPathResolver();
-  protected abstract SourcePath getPath();
+  @Override
+  public abstract SourcePathResolver getPathResolver();
+  @Override
+  public abstract SourcePath getPath();
   protected abstract ImmutableList<SourcePath> getContents();
 
   @Override
@@ -54,8 +58,8 @@ abstract class AbstractThinArchiveArg extends Arg {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return resolver.filterBuildRuleInputs(getInputs());
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return ruleFinder.filterBuildRuleInputs(getInputs());
   }
 
   @Override

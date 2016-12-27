@@ -56,7 +56,7 @@ public class AetherUtil {
       String repoUrl,
       Optional<String> username,
       Optional<String> password) {
-    RemoteRepository.Builder repo = new RemoteRepository.Builder( null, "default", repoUrl)
+    RemoteRepository.Builder repo = new RemoteRepository.Builder(null, "default", repoUrl)
         .setPolicy(new RepositoryPolicy(true, null, CHECKSUM_POLICY_FAIL));
 
     if (username.isPresent() && password.isPresent()) {

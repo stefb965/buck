@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigSetup;
 import com.facebook.buck.rage.AbstractReport;
@@ -27,8 +28,8 @@ import com.facebook.buck.rage.ExtraInfoCollector;
 import com.facebook.buck.rage.InteractiveReport;
 import com.facebook.buck.rage.RageConfig;
 import com.facebook.buck.rage.VcsInfoCollector;
+import com.facebook.buck.rage.WatchmanDiagReportCollector;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
@@ -49,12 +50,14 @@ public class RageCommand extends AbstractCommand {
       "System in non-interactive mode.")
   private boolean gatherVcsInfo = false;
 
+  @Option(name = "--show-json", usage = "If protocol is JSON show the response to stdout or not.")
+  private boolean showJson = false;
+
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem filesystem = params.getCell().getFilesystem();
     BuckConfig buckConfig = params.getBuckConfig();
     RageConfig rageConfig = RageConfig.of(buckConfig);
-    DirtyPrintStreamDecorator stdOut = params.getConsole().getStdOut();
     ProcessExecutor processExecutor = new DefaultProcessExecutor(params.getConsole());
 
     VersionControlCmdLineInterfaceFactory vcsFactory =
@@ -70,6 +73,14 @@ public class RageCommand extends AbstractCommand {
     ExtraInfoCollector extraInfoCollector =
         new DefaultExtraInfoCollector(rageConfig, filesystem, processExecutor);
 
+    Optional<WatchmanDiagReportCollector> watchmanDiagReportCollector =
+        WatchmanDiagReportCollector.newInstanceIfWatchmanUsed(
+            params.getCell(),
+            filesystem,
+            processExecutor,
+            new ExecutableFinder(),
+            params.getEnvironment());
+
     AbstractReport report;
     DefaultDefectReporter reporter = new DefaultDefectReporter(
         filesystem,
@@ -83,18 +94,18 @@ public class RageCommand extends AbstractCommand {
           filesystem,
           params.getObjectMapper(),
           params.getConsole(),
-          stdOut,
           params.getStdIn(),
           params.getBuildEnvironmentDescription(),
           vcsInfoCollector,
           rageConfig,
-          extraInfoCollector);
+          extraInfoCollector,
+          watchmanDiagReportCollector);
     } else {
       report = new AutomatedReport(
           reporter,
           filesystem,
           params.getObjectMapper(),
-          stdOut,
+          params.getConsole(),
           params.getBuildEnvironmentDescription(),
           gatherVcsInfo ? vcsInfoCollector : Optional.empty(),
           rageConfig,
@@ -102,7 +113,7 @@ public class RageCommand extends AbstractCommand {
     }
 
     Optional<DefectSubmitResult> defectSubmitResult = report.collectAndSubmitResult();
-    report.presentDefectSubmitResult(defectSubmitResult);
+    report.presentDefectSubmitResult(defectSubmitResult, showJson);
 
     return 0;
   }

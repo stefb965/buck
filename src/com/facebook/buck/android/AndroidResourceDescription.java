@@ -24,12 +24,12 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -49,8 +49,6 @@ import java.util.Optional;
 
 public class AndroidResourceDescription implements Description<AndroidResourceDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_resource");
-
   private static final ImmutableSet<String> NON_ASSET_FILENAMES = ImmutableSet.of(
       ".gitkeep",
       ".svn",
@@ -61,9 +59,10 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
       "thumbs.db",
       "picasa.ini");
 
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
+  private final boolean isGrayscaleImageProcessingEnabled;
+
+  public AndroidResourceDescription(boolean enableGrayscaleImageProcessing) {
+    isGrayscaleImageProcessingEnabled = enableGrayscaleImageProcessing;
   }
 
   @Override
@@ -89,7 +88,8 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
               ") is not of type android_resource or android_library.");
     }
 
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     // We don't handle the resources parameter well in `AndroidResource` rules, as instead of
     // hashing the contents of the entire resources directory, we try to filter out anything that
@@ -109,6 +109,7 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
                 AndroidResourceHelper.androidResOnly(params.getDeclaredDeps().get())),
             params.getExtraDeps()),
         pathResolver,
+        ruleFinder,
         resolver.getAllRules(args.deps),
         args.res.orElse(null),
         resInputsAndKey.getFirst(),
@@ -119,7 +120,8 @@ public class AndroidResourceDescription implements Description<AndroidResourceDe
         assetsInputsAndKey.getSecond(),
         args.manifest.orElse(null),
         args.hasWhitelistedStrings.orElse(false),
-        args.resourceUnion.orElse(false));
+        args.resourceUnion.orElse(false),
+        isGrayscaleImageProcessingEnabled);
   }
 
   private Pair<ImmutableSortedSet<SourcePath>, Optional<SourcePath>> collectInputFilesAndKey(

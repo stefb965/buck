@@ -20,9 +20,9 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -33,7 +33,8 @@ import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class JavaLibraryBuilder extends AbstractNodeBuilder<JavaLibraryDescription.Arg> {
+public class JavaLibraryBuilder
+    extends AbstractNodeBuilder<JavaLibraryDescription.Arg, JavaLibraryDescription> {
 
   private final ProjectFilesystem projectFilesystem;
 
@@ -47,6 +48,10 @@ public class JavaLibraryBuilder extends AbstractNodeBuilder<JavaLibraryDescripti
         projectFilesystem,
         hashCode);
     this.projectFilesystem = projectFilesystem;
+  }
+
+  public static JavaLibraryBuilder createBuilder(String qualifiedTarget) {
+    return createBuilder(BuildTargetFactory.newInstance(qualifiedTarget));
   }
 
   public static JavaLibraryBuilder createBuilder(BuildTarget target) {
@@ -111,11 +116,8 @@ public class JavaLibraryBuilder extends AbstractNodeBuilder<JavaLibraryDescripti
     return this;
   }
 
-  public JavaLibraryBuilder setCompiler(BuildRule javac) {
-    SourcePath right =
-        new BuildTargetSourcePath(javac.getBuildTarget());
-    Either<BuiltInJavac, SourcePath> value = Either.ofRight(right);
-
+  public JavaLibraryBuilder setCompiler(SourcePath javac) {
+    Either<BuiltInJavac, SourcePath> value = Either.ofRight(javac);
     arg.compiler = Optional.of(value);
     return this;
   }

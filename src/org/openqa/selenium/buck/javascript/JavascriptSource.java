@@ -49,6 +49,7 @@ public class JavascriptSource {
   // goog.require statement may have a LHS assignment if inside a goog.module
   // file. This is a simplified version of:
   // https://github.com/google/closure-compiler/blob/master/src/com/google/javascript/jscomp/deps/JsFileParser.java#L41
+  @SuppressWarnings("checkstyle:linelength")
   private static final Pattern REQUIRE = Pattern.compile(
       "^\\s*(?:(?:var|let|const)\\s+[a-zA-Z_$][a-zA-Z0-9$_]*\\s*=\\s*)?goog\\.require\\s*\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)");
   private static final Pattern PROVIDE = Pattern.compile(

@@ -21,7 +21,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -42,7 +42,8 @@ public class CommandToolTest {
   public void buildTargetSourcePath() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Build a source path which wraps a build rule.
@@ -62,7 +63,7 @@ public class CommandToolTest {
         Matchers.contains(
             Preconditions.checkNotNull(rule.getPathToOutput()).toAbsolutePath().toString()));
     assertThat(
-        tool.getDeps(pathResolver),
+        tool.getDeps(ruleFinder),
         Matchers.contains(rule));
     assertThat(
         tool.getInputs(),
@@ -73,7 +74,7 @@ public class CommandToolTest {
   public void pathSourcePath() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Build a source path which wraps a build rule.
@@ -93,7 +94,8 @@ public class CommandToolTest {
   public void extraInputs() {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildRule rule = new FakeBuildRule("//some:target", pathResolver);
     ruleResolver.addToIndex(rule);
     SourcePath path = new BuildTargetSourcePath(rule.getBuildTarget());
@@ -104,7 +106,7 @@ public class CommandToolTest {
             .build();
 
     assertThat(
-        tool.getDeps(pathResolver),
+        tool.getDeps(ruleFinder),
         Matchers.contains(rule));
     assertThat(
         tool.getInputs(),
@@ -115,7 +117,7 @@ public class CommandToolTest {
   public void environment() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     SourcePath path = new FakeSourcePath("input");
     CommandTool tool =
         new CommandTool.Builder()
@@ -123,7 +125,7 @@ public class CommandToolTest {
             .addEnv("PATH", new SourcePathArg(pathResolver, path))
             .build();
 
-    assertThat(tool.getEnvironment(pathResolver), Matchers.hasEntry(
+    assertThat(tool.getEnvironment(), Matchers.hasEntry(
             Matchers.equalTo("PATH"),
             Matchers.containsString("input")));
   }
@@ -132,7 +134,8 @@ public class CommandToolTest {
   public void sourcePathsContributeToRuleKeys() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     SourcePath path = new FakeSourcePath("input");
     CommandTool tool =
         new CommandTool.Builder()
@@ -142,24 +145,26 @@ public class CommandToolTest {
     FileHashCache hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of(
             "input", Strings.repeat("a", 40)));
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver);
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder);
     RuleKey ruleKey = new UncachedRuleKeyBuilder(
+        ruleFinder,
         pathResolver,
         hashCache,
-        ruleKeyBuilderFactory)
+        ruleKeyFactory)
         .setReflectively("key",  tool)
         .build();
 
     hashCache = FakeFileHashCache.createFromStrings(
         ImmutableMap.of(
             "input", Strings.repeat("b", 40)));
-    ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(0, hashCache, pathResolver);
+    ruleKeyFactory =
+        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder);
     RuleKey changedRuleKey = new UncachedRuleKeyBuilder(
+        ruleFinder,
         pathResolver,
         hashCache,
-        ruleKeyBuilderFactory)
+        ruleKeyFactory)
         .setReflectively("key",  tool)
         .build();
 

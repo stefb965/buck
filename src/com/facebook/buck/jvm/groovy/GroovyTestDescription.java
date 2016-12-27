@@ -21,6 +21,7 @@ import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -28,14 +29,15 @@ import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
@@ -45,13 +47,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.logging.Level;
 
 public class GroovyTestDescription implements Description<GroovyTestDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("groovy_test");
 
   private final GroovyBuckConfig groovyBuckConfig;
   private final JavaOptions javaOptions;
@@ -70,49 +69,63 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
 
   @Override
-  public <A extends Arg> JavaTest createBuildRule(
+  public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget testTarget = params.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(testTarget);
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          ruleFinder,
+          params,
+          new BuildTargetSourcePath(testTarget));
+    }
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
+    JavacOptions javacOptions = JavacOptionsFactory
+        .create(
+          defaultJavacOptions,
+          params,
+          resolver,
+          ruleFinder,
+          args
+        )
+        // groovyc may or may not play nice with generating ABIs from source, so disabling for now
+        .withAbiGenerationMode(JavacOptions.AbiGenerationMode.CLASS);
     GroovycToJarStepFactory stepFactory = new GroovycToJarStepFactory(
         groovyBuckConfig.getGroovyCompiler().get(),
         Optional.of(args.extraGroovycArguments),
-        JavacOptionsFactory.create(
-            defaultJavacOptions,
-            params,
-            resolver,
-            pathResolver,
-            args
-        ));
+        javacOptions);
 
+    BuildRuleParams testsLibraryParams =
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
+                    Iterables.concat(
+                        params.getDeclaredDeps().get(),
+                        resolver.getAllRules(args.providedDeps))),
+                ruleFinder.filterBuildRuleInputs(
+                    defaultJavacOptions.getInputs(ruleFinder))))
+            .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
     JavaLibrary testsLibrary =
         resolver.addToIndex(
             new DefaultJavaLibrary(
-                params.appendExtraDeps(
-                    Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps))),
-                        pathResolver.filterBuildRuleInputs(
-                            defaultJavacOptions.getInputs(pathResolver))))
-                    .withFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
+                testsLibraryParams,
                 pathResolver,
+                ruleFinder,
                 args.srcs,
                 ResourceValidator.validateResources(
                     pathResolver,
@@ -123,7 +136,8 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                 /* postprocessClassesCommands */ ImmutableList.of(),
                 /* exportDeps */ ImmutableSortedSet.of(),
                 /* providedDeps */ ImmutableSortedSet.of(),
-                new BuildTargetSourcePath(abiJarTarget),
+                abiJarTarget,
+                JavaLibraryRules.getAbiInputs(resolver, testsLibraryParams.getDeps()),
                 /* trackClassUsage */ false,
                 /* additionalClasspathEntries */ ImmutableSet.of(),
                 stepFactory,
@@ -131,41 +145,29 @@ public class GroovyTestDescription implements Description<GroovyTestDescription.
                 /* manifest file */ Optional.empty(),
                 /* mavenCoords */ Optional.empty(),
                 /* tests */ ImmutableSortedSet.of(),
-                /* classesToRemoveFromJar */ ImmutableSet.of()
-            ));
+                /* classesToRemoveFromJar */ ImmutableSet.of()));
 
-    JavaTest javaTest =
-        resolver.addToIndex(
-            new JavaTest(
-                params.copyWithDeps(
-                    Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
-                    Suppliers.ofInstance(ImmutableSortedSet.of())),
-                pathResolver,
-                testsLibrary,
-                /* addtional test classes */ ImmutableSortedSet.<String>of(),
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-                args.labels,
-                args.contacts,
-                args.testType.orElse(TestType.JUNIT),
-                javaOptions.getJavaRuntimeLauncher(),
-                args.vmArgs,
-                /* nativeLibsEnvironment */ ImmutableMap.of(),
-                args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
-                args.testCaseTimeoutMs,
-                args.env,
-                args.getRunTestSeparately(),
-                args.getForkMode(),
-                args.stdOutLogLevel,
-                args.stdErrLogLevel));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(testsLibrary.getBuildTarget())));
-
-    return javaTest;
+    return new JavaTest(
+        params.copyWithDeps(
+            Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
+            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        pathResolver,
+        testsLibrary,
+        /* additional tests */ ImmutableSortedSet.of(),
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        args.labels,
+        args.contacts,
+        args.testType.orElse(TestType.JUNIT),
+        javaOptions.getJavaRuntimeLauncher(),
+        args.vmArgs,
+        /* nativeLibsEnvironment */ ImmutableMap.of(),
+        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.testCaseTimeoutMs,
+        args.env,
+        args.getRunTestSeparately(),
+        args.getForkMode(),
+        args.stdOutLogLevel,
+        args.stdErrLogLevel);
   }
 
   @SuppressFieldNotInitialized

@@ -91,15 +91,16 @@ public class CoreDataModel extends AbstractBuildRule {
       stepsBuilder.add(
           new ShellStep(getProjectFilesystem().getRootPath()) {
             @Override
-            protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+            protected ImmutableList<String> getShellCommandInternal(
+                ExecutionContext executionContext) {
               ImmutableList.Builder<String> commandBuilder = ImmutableList.builder();
 
-              commandBuilder.addAll(momc.getCommandPrefix(getResolver()));
+              commandBuilder.addAll(momc.getCommandPrefix(context.getSourcePathResolver()));
               commandBuilder.add(
                   "--sdkroot", sdkRoot.toString(),
                   "--" + sdkName + "-deployment-target", minOSVersion,
                   "--module", moduleName,
-                  getResolver().getAbsolutePath(dataModelPath).toString(),
+                  context.getSourcePathResolver().getAbsolutePath(dataModelPath).toString(),
                   getProjectFilesystem().resolve(outputDir).toString());
 
               return commandBuilder.build();
@@ -107,7 +108,7 @@ public class CoreDataModel extends AbstractBuildRule {
 
             @Override
             public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-              return momc.getEnvironment(getResolver());
+              return momc.getEnvironment();
             }
 
             @Override

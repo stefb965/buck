@@ -28,6 +28,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -67,10 +68,12 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   private final PythonPackageComponents components;
   @AddToRuleKey
   private final Tool python;
+  private final SourcePathRuleFinder ruleFinder;
 
   public PythonInPlaceBinary(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       PythonPlatform pythonPlatform,
       CxxPlatform cxxPlatform,
@@ -90,6 +93,7 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
         preloadLibraries,
         pexExtension,
         legacyOutputPath);
+    this.ruleFinder = ruleFinder;
     this.script =
         getScript(
             ruleResolver,
@@ -105,6 +109,11 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     this.linkTree = linkTree;
     this.components = components;
     this.python = python;
+  }
+
+  @Override
+  public boolean supportsBuckBuildInto() {
+    return true;
   }
 
   private static String getRunInplaceResource() {
@@ -126,25 +135,36 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
     final String relativeLinkTreeRootStr =
         Escaper.escapeAsPythonString(relativeLinkTreeRoot.toString());
     final Linker ld = cxxPlatform.getLd().resolve(resolver);
-    return () -> new ST(getRunInplaceResource())
-        .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
-        .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
-        .add("MODULES_DIR", relativeLinkTreeRootStr)
-        .add(
-            "NATIVE_LIBS_ENV_VAR",
-            Escaper.escapeAsPythonString(ld.searchPathEnvVar()))
-        .add(
-            "NATIVE_LIBS_DIR",
-            components.getNativeLibraries().isEmpty() ?
-                "None" :
-                relativeLinkTreeRootStr)
-        .add(
-            "NATIVE_LIBS_PRELOAD_ENV_VAR",
-            Escaper.escapeAsPythonString(ld.preloadEnvVar()))
-        .add(
-            "NATIVE_LIBS_PRELOAD",
-            Escaper.escapeAsPythonString(Joiner.on(':').join(preloadLibraries)))
-        .render();
+    return () -> {
+        ST st = new ST(getRunInplaceResource())
+            .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
+            .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
+            .add("MODULES_DIR", relativeLinkTreeRootStr);
+
+        // Only add platform-specific values when the binary includes native libraries.
+        if (components.getNativeLibraries().isEmpty()) {
+          st.add("NATIVE_LIBS_ENV_VAR", "None");
+          st.add("NATIVE_LIBS_DIR", "None");
+        } else {
+          st.add(
+              "NATIVE_LIBS_ENV_VAR",
+              Escaper.escapeAsPythonString(ld.searchPathEnvVar()));
+          st.add("NATIVE_LIBS_DIR", relativeLinkTreeRootStr);
+        }
+
+        if (preloadLibraries.isEmpty()) {
+          st.add("NATIVE_LIBS_PRELOAD_ENV_VAR", "None");
+          st.add("NATIVE_LIBS_PRELOAD", "None");
+        } else {
+          st.add(
+              "NATIVE_LIBS_PRELOAD_ENV_VAR",
+              Escaper.escapeAsPythonString(ld.preloadEnvVar()));
+          st.add(
+              "NATIVE_LIBS_PRELOAD",
+              Escaper.escapeAsPythonString(Joiner.on(':').join(preloadLibraries)));
+        }
+        return st.render();
+      };
   }
 
   @Override
@@ -173,9 +193,9 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
         .add(linkTree)
-        .addAll(getResolver().filterBuildRuleInputs(components.getModules().values()))
-        .addAll(getResolver().filterBuildRuleInputs(components.getResources().values()))
-        .addAll(getResolver().filterBuildRuleInputs(components.getNativeLibraries().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getModules().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getResources().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getNativeLibraries().values()))
         .addAll(getDeclaredDeps())
         .build();
   }

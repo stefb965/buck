@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -56,14 +57,15 @@ public class CalculateAbi extends AbstractBuildRule implements SupportsInputBase
 
   public static CalculateAbi of(
       BuildTarget target,
-      final SourcePathResolver pathResolver,
+      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleParams libraryParams,
-      final SourcePath library) {
+      SourcePath library) {
     return new CalculateAbi(
         libraryParams.copyWithChanges(
             target,
             Suppliers.ofInstance(
-                ImmutableSortedSet.copyOf(pathResolver.filterBuildRuleInputs(library))),
+                ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library))),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         library);

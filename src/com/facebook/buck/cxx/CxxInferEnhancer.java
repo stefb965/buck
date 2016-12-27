@@ -26,6 +26,8 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.SymlinkTree;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -90,7 +92,7 @@ public final class CxxInferEnhancer {
     InferFlavors.checkNoInferFlavors(buildTarget.getFlavors());
     return CxxDescriptionEnhancer.parseCxxSources(
         buildTarget,
-        new SourcePathResolver(ruleResolver),
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
         cxxPlatform,
         args);
   }
@@ -108,7 +110,7 @@ public final class CxxInferEnhancer {
         requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
             params,
             ruleResolver,
-            new SourcePathResolver(ruleResolver),
+            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
             cxxBuckConfig,
             cxxPlatform,
             args,
@@ -126,7 +128,7 @@ public final class CxxInferEnhancer {
                         .addAll(captureRules)
                         .build()),
                 params.getExtraDeps()),
-            new SourcePathResolver(ruleResolver),
+            new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)),
             captureRules));
   }
 
@@ -319,7 +321,8 @@ public final class CxxInferEnhancer {
       BuildRuleParams params,
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.Arg args,
-      HeaderSymlinkTree headerSymlinkTree) throws NoSuchBuildTargetException {
+      HeaderSymlinkTree headerSymlinkTree,
+      Optional<SymlinkTree> sandboxTree) throws NoSuchBuildTargetException {
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         params,
         cxxPlatform,
@@ -333,7 +336,9 @@ public final class CxxInferEnhancer {
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(
             cxxPlatform,
             FluentIterable.from(params.getDeps())
-                .filter(CxxPreprocessorDep.class::isInstance)));
+                .filter(CxxPreprocessorDep.class::isInstance)),
+        args.includeDirs,
+        sandboxTree);
   }
 
   private static ImmutableList<CxxPreprocessorInput>
@@ -343,7 +348,10 @@ public final class CxxInferEnhancer {
       SourcePathResolver pathResolver,
       CxxPlatform cxxPlatform,
       CxxLibraryDescription.Arg args,
-      HeaderSymlinkTree headerSymlinkTree) throws NoSuchBuildTargetException {
+      HeaderSymlinkTree headerSymlinkTree,
+      ImmutableList<String> includeDirs,
+      Optional<SymlinkTree> sandboxTree) throws NoSuchBuildTargetException {
+    boolean shouldCreatePublicHeadersSymlinks = args.xcodePublicHeadersSymlinks.orElse(true);
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         params,
         cxxPlatform,
@@ -369,7 +377,10 @@ public final class CxxInferEnhancer {
                 pathResolver,
                 Optional.of(cxxPlatform),
                 args),
-            args.frameworks));
+            args.frameworks,
+            shouldCreatePublicHeadersSymlinks),
+        includeDirs,
+        sandboxTree);
   }
 
   private static ImmutableSet<CxxInferCapture> requireInferCaptureBuildRules(
@@ -384,7 +395,8 @@ public final class CxxInferEnhancer {
 
     InferFlavors.checkNoInferFlavors(params.getBuildTarget().getFlavors());
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableMap<Path, SourcePath> headers = CxxDescriptionEnhancer.parseHeaders(
         params.getBuildTarget(),
@@ -394,13 +406,28 @@ public final class CxxInferEnhancer {
 
     // Setup the header symlink tree and combine all the preprocessor input from this rule
     // and all dependencies.
+
+    boolean shouldCreateHeadersSymlinks = true;
+    if (args instanceof CxxLibraryDescription.Arg) {
+      shouldCreateHeadersSymlinks =
+          ((CxxLibraryDescription.Arg) args).xcodePrivateHeadersSymlinks.orElse(true);
+    }
     HeaderSymlinkTree headerSymlinkTree = CxxDescriptionEnhancer.requireHeaderSymlinkTree(
         params,
         resolver,
         pathResolver,
         cxxPlatform,
         headers,
-        HeaderVisibility.PRIVATE);
+        HeaderVisibility.PRIVATE,
+        shouldCreateHeadersSymlinks);
+    Optional<SymlinkTree> sandboxTree = Optional.empty();
+    if (cxxBuckConfig.sandboxSources()) {
+      sandboxTree =
+          CxxDescriptionEnhancer.createSandboxTree(
+              params,
+              resolver,
+              cxxPlatform);
+    }
 
     ImmutableList<CxxPreprocessorInput> preprocessorInputs;
 
@@ -409,7 +436,8 @@ public final class CxxInferEnhancer {
           params,
           cxxPlatform,
           (CxxBinaryDescription.Arg) args,
-          headerSymlinkTree);
+          headerSymlinkTree,
+          sandboxTree);
     } else if (args instanceof CxxLibraryDescription.Arg) {
       preprocessorInputs = computePreprocessorInputForCxxLibraryDescriptionArg(
           params,
@@ -417,7 +445,9 @@ public final class CxxInferEnhancer {
           pathResolver,
           cxxPlatform,
           (CxxLibraryDescription.Arg) args,
-          headerSymlinkTree);
+          headerSymlinkTree,
+          args.includeDirs,
+          sandboxTree);
     } else {
       throw new IllegalStateException("Only Binary and Library args supported.");
     }
@@ -426,6 +456,7 @@ public final class CxxInferEnhancer {
         params,
         resolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         preprocessorInputs,
@@ -436,7 +467,7 @@ public final class CxxInferEnhancer {
             cxxPlatform),
         args.prefixHeader,
         CxxSourceRuleFactory.PicType.PDC,
-        Optional.empty());
+        sandboxTree);
     return factory.requireInferCaptureBuildRules(
         sources,
         inferBuckConfig,

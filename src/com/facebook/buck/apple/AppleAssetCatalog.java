@@ -68,6 +68,9 @@ public class AppleAssetCatalog extends AbstractBuildRule {
   @AddToRuleKey
   private final Optional<String> launchImage;
 
+  @AddToRuleKey
+  private final AppleAssetCatalogDescription.Optimization optimization;
+
   AppleAssetCatalog(
       BuildRuleParams params,
       final SourcePathResolver resolver,
@@ -76,6 +79,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
       SortedSet<SourcePath> assetCatalogDirs,
       Optional<String> appIcon,
       Optional<String> launchImage,
+      AppleAssetCatalogDescription.Optimization optimization,
       String bundleName) {
     super(params, resolver);
     Preconditions.checkArgument(
@@ -95,6 +99,7 @@ public class AppleAssetCatalog extends AbstractBuildRule {
         "%s-output.plist");
     this.appIcon = appIcon;
     this.launchImage = launchImage;
+    this.optimization = optimization;
   }
 
   @Override
@@ -105,21 +110,19 @@ public class AppleAssetCatalog extends AbstractBuildRule {
     stepsBuilder.add(new MakeCleanDirectoryStep(getProjectFilesystem(), outputDir));
     stepsBuilder.add(new MkdirStep(getProjectFilesystem(), outputPlist.getParent()));
     ImmutableSortedSet<Path> absoluteAssetCatalogDirs =
-        ImmutableSortedSet.copyOf(
-            Iterables.transform(
-                assetCatalogDirs,
-                getResolver()::getAbsolutePath));
+        context.getSourcePathResolver().getAllAbsolutePaths(assetCatalogDirs);
     stepsBuilder.add(
         new ActoolStep(
             getProjectFilesystem().getRootPath(),
             applePlatformName,
-            actool.getEnvironment(getResolver()),
-            actool.getCommandPrefix(getResolver()),
+            actool.getEnvironment(),
+            actool.getCommandPrefix(context.getSourcePathResolver()),
             absoluteAssetCatalogDirs,
             getProjectFilesystem().resolve(outputDir),
             getProjectFilesystem().resolve(outputPlist),
             appIcon,
-            launchImage));
+            launchImage,
+            optimization));
 
     buildableContext.recordArtifact(getOutputDir());
     buildableContext.recordArtifact(outputPlist);

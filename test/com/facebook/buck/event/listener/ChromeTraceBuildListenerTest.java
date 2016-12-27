@@ -52,6 +52,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.timing.Clock;
@@ -108,6 +109,8 @@ public class ChromeTraceBuildListenerTest {
         .setBuckLogDir(tmpDir.getRoot().toPath().resolve("buck-out/log"))
         .setBuildId(new BuildId("BUILD_ID"))
         .setSubCommand("no_sub_command")
+        .setIsDaemon(false)
+        .setSuperConsoleEnabled(false)
         .build();
   }
 
@@ -177,11 +180,11 @@ public class ChromeTraceBuildListenerTest {
 
     FakeBuildRule rule = new FakeBuildRule(
         target,
-        new SourcePathResolver(
+        new SourcePathResolver(new SourcePathRuleFinder(
             new BuildRuleResolver(
                 TargetGraph.EMPTY,
                 new DefaultTargetNodeToBuildRuleTransformer())
-        ),
+        )),
         ImmutableSortedSet.of());
     RuleKey ruleKey = new RuleKey("abc123");
     String stepShortName = "fakeStep";
@@ -202,7 +205,8 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(new PerfStatsTracking.MemoryPerfStatsEvent(
         /* freeMemoryBytes */ 1024 * 1024L,
         /* totalMemoryBytes */ 3 * 1024 * 1024L,
-        /* timeSpentInGcMs */ -1));
+        /* timeSpentInGcMs */ -1,
+        /* currentMemoryBytesUsageByPool */ ImmutableMap.of("flower", 42L * 1024 * 1024)));
     ArtifactCacheConnectEvent.Started artifactCacheConnectEventStarted =
         ArtifactCacheConnectEvent.started();
     eventBus.post(artifactCacheConnectEventStarted);
@@ -337,7 +341,8 @@ public class ChromeTraceBuildListenerTest {
             "used_memory_mb", "2",
             "free_memory_mb", "1",
             "total_memory_mb", "3",
-            "time_spent_in_gc_sec", "0"));
+            "time_spent_in_gc_sec", "0",
+            "pool_flower_mb", "42"));
 
     assertNextResult(
         resultListCopy,

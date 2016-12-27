@@ -21,6 +21,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.ProcessExecutorParams;
 
 import com.google.common.collect.ImmutableCollection;
@@ -43,7 +44,7 @@ public class FakeJavac implements Javac {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     throw new UnsupportedOperationException();
   }
 
@@ -58,7 +59,7 @@ public class FakeJavac implements Javac {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+  public ImmutableMap<String, String> getEnvironment() {
     throw new UnsupportedOperationException();
   }
 
@@ -75,7 +76,8 @@ public class FakeJavac implements Javac {
       ImmutableSet<String> safeAnnotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory) throws InterruptedException {
+      Optional<Path> workingDirectory,
+      JavacOptions.AbiGenerationMode abiGenerationMode) throws InterruptedException {
     try {
       return context.getProcessExecutor().launchAndExecute(
           ProcessExecutorParams.ofCommand("javac")).getExitCode();

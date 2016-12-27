@@ -27,6 +27,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -65,10 +66,10 @@ public class CxxTestTest {
     public FakeCxxTest() {
       super(
           createBuildParams(),
-          new SourcePathResolver(
+          new SourcePathResolver(new SourcePathRuleFinder(
               new BuildRuleResolver(
                   TargetGraph.EMPTY,
-                  new DefaultTargetNodeToBuildRuleTransformer())),
+                  new DefaultTargetNodeToBuildRuleTransformer()))),
           ImmutableMap.of(),
           Suppliers.ofInstance(ImmutableMap.of()),
           Suppliers.ofInstance(ImmutableList.of()),
@@ -125,7 +126,6 @@ public class CxxTestTest {
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     TestRunningOptions options =
         TestRunningOptions.builder()
-            .setDryRun(false)
             .setTestSelectorList(TestSelectorList.empty())
             .build();
     ImmutableList<Step> actualSteps = cxxTest.runTests(
@@ -196,8 +196,7 @@ public class CxxTestTest {
     ExecutionContext executionContext = TestExecutionContext.newInstance();
     Callable<TestResults> result = cxxTest.interpretTestResults(
         executionContext,
-        /* isUsingTestSelectors */ false,
-        /* isDryRun */ false);
+        /* isUsingTestSelectors */ false);
     result.call();
   }
 

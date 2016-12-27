@@ -17,17 +17,22 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.event.api.BuckTracing;
+import com.facebook.buck.jvm.java.abi.SourceBasedAbiStubber;
 import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.zip.CustomZipOutputStream;
+import com.facebook.buck.zip.ZipOutputStreams;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -100,7 +105,7 @@ public abstract class Jsr199Javac implements Javac {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+  public ImmutableMap<String, String> getEnvironment() {
     throw new UnsupportedOperationException("In memory javac may not be used externally");
   }
 
@@ -114,11 +119,29 @@ public abstract class Jsr199Javac implements Javac {
       ImmutableSet<String> safeAnnotationProcessors,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory) {
+      Optional<Path> workingDirectory,
+      JavacOptions.AbiGenerationMode abiGenerationMode) {
     JavaCompiler compiler = createCompiler(context);
-
-    StandardJavaFileManager fileManager = context.getFileManagerFactory().create(compiler);
+    CustomZipOutputStream jarOutputStream = null;
+    StandardJavaFileManager fileManager = null;
+    JavaInMemoryFileManager inMemoryFileManager = null;
     try {
+      fileManager = compiler.getStandardFileManager(null, null, null);
+      Supplier<ImmutableSet<String>> alreadyAddedFilesAvailableAfterCompilation =
+          Suppliers.ofInstance(ImmutableSet.of());
+      if (context.getDirectToJarOutputSettings().isPresent()) {
+        jarOutputStream = ZipOutputStreams.newOutputStream(
+            context.getProjectFilesystem().getPathForRelativePath(
+                context.getDirectToJarOutputSettings().get().getDirectToJarOutputPath()),
+            ZipOutputStreams.HandleDuplicates.APPEND_TO_ZIP);
+        inMemoryFileManager = new JavaInMemoryFileManager(
+            fileManager,
+            jarOutputStream,
+            context.getDirectToJarOutputSettings().get().getClassesToRemoveFromJar());
+        alreadyAddedFilesAvailableAfterCompilation = inMemoryFileManager::getEntries;
+        fileManager = inMemoryFileManager;
+      }
+
       Iterable<? extends JavaFileObject> compilationUnits;
       try {
         compilationUnits = createCompilationUnits(
@@ -131,7 +154,7 @@ public abstract class Jsr199Javac implements Javac {
       }
 
       try {
-        return buildWithClasspath(
+        int result = buildWithClasspath(
             context,
             invokingRule,
             options,
@@ -140,16 +163,55 @@ public abstract class Jsr199Javac implements Javac {
             pathToSrcsList,
             compiler,
             fileManager,
-            compilationUnits);
+            compilationUnits,
+            abiGenerationMode);
+        if (result != 0 || !context.getDirectToJarOutputSettings().isPresent()) {
+          return result;
+        }
+
+        return JarDirectoryStepHelper.createJarFile(
+            context.getProjectFilesystem(),
+            context.getDirectToJarOutputSettings().get().getDirectToJarOutputPath(),
+            jarOutputStream,
+            context.getDirectToJarOutputSettings().get().getEntriesToJar(),
+            alreadyAddedFilesAvailableAfterCompilation.get(),
+            context.getDirectToJarOutputSettings().get().getMainClass(),
+            context.getDirectToJarOutputSettings().get().getManifestFile(),
+            /* mergeManifests */ true,
+            /* blacklist */ ImmutableSet.of(),
+            context.getEventSink(),
+            context.getStdErr());
       } finally {
         close(compilationUnits);
       }
+    } catch (IOException e) {
+      LOG.warn(e, "Unable to create jarOutputStream");
     } finally {
-      try {
-        fileManager.close();
-      } catch (IOException e) {
-        LOG.warn(e, "Unable to close java filemanager. We may be leaking memory.");
+      closeResources(fileManager, inMemoryFileManager, jarOutputStream);
+    }
+    return 1;
+  }
+
+  private void closeResources(
+      @Nullable StandardJavaFileManager fileManager,
+      @Nullable JavaInMemoryFileManager inMemoryFileManager,
+      @Nullable CustomZipOutputStream jarOutputStream) {
+    try {
+      if (jarOutputStream != null) {
+        jarOutputStream.close();
       }
+    } catch (IOException e) {
+      LOG.warn(e, "Unable to close jarOutputStream. We may be leaking memory.");
+    }
+
+    try {
+      if (inMemoryFileManager != null) {
+        inMemoryFileManager.close();
+      } else if (fileManager != null) {
+        fileManager.close();
+      }
+    } catch (IOException e) {
+      LOG.warn(e, "Unable to close fileManager. We may be leaking memory.");
     }
   }
 
@@ -162,7 +224,8 @@ public abstract class Jsr199Javac implements Javac {
       Path pathToSrcsList,
       JavaCompiler compiler,
       StandardJavaFileManager fileManager,
-      Iterable<? extends JavaFileObject> compilationUnits) {
+      Iterable<? extends JavaFileObject> compilationUnits,
+      JavacOptions.AbiGenerationMode abiGenerationMode) {
     // write javaSourceFilePaths to classes file
     // for buck user to have a list of all .java files to be compiled
     // since we do not print them out to console in case of error
@@ -194,6 +257,16 @@ public abstract class Jsr199Javac implements Javac {
     boolean isSuccess = false;
     BuckTracing.setCurrentThreadTracingInterfaceFromJsr199Javac(
         new Jsr199TracingBridge(context.getEventSink(), invokingRule));
+    Object abiValidatingTaskListener = null;
+    if (abiGenerationMode != JavacOptions.AbiGenerationMode.CLASS) {
+      abiValidatingTaskListener = SourceBasedAbiStubber.newValidatingTaskListener(
+          context.getClassLoaderCache(),
+          compilationTask,
+          abiGenerationMode == JavacOptions.AbiGenerationMode.SOURCE ?
+              Diagnostic.Kind.ERROR :
+              Diagnostic.Kind.MANDATORY_WARNING);
+    }
+
     try {
       try (
           // TranslatingJavacPhaseTracer is AutoCloseable so that it can detect the end of tracing
@@ -202,7 +275,8 @@ public abstract class Jsr199Javac implements Javac {
               invokingRule,
               context.getClassLoaderCache(),
               context.getEventSink(),
-              compilationTask);
+              compilationTask,
+              abiValidatingTaskListener);
 
           // Ensure annotation processors are loaded from their own classloader. If we don't do
           // this, then the evidence suggests that they get one polluted with Buck's own classpath,
@@ -232,6 +306,9 @@ public abstract class Jsr199Javac implements Javac {
       LOG.debug("javac: %s", DiagnosticPrettyPrinter.format(diagnostic));
     }
 
+    List<Diagnostic<? extends JavaFileObject>> cleanDiagnostics =
+        DiagnosticCleaner.clean(diagnostics.getDiagnostics());
+
     if (isSuccess) {
       context.getUsedClassesFileWriter().writeFile(
           context.getProjectFilesystem(),
@@ -241,7 +318,7 @@ public abstract class Jsr199Javac implements Javac {
       if (context.getVerbosity().shouldPrintStandardInformation()) {
         int numErrors = 0;
         int numWarnings = 0;
-        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+        for (Diagnostic<? extends JavaFileObject> diagnostic : cleanDiagnostics) {
           Diagnostic.Kind kind = diagnostic.getKind();
           if (kind == Diagnostic.Kind.ERROR) {
             ++numErrors;

@@ -21,14 +21,12 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.google.common.base.Function;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterables;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * Calculates the transitive closure of exported deps for every node in a {@link TargetGraph}.
@@ -39,7 +37,6 @@ public class ExportedDepsClosureResolver {
   private Map<BuildTarget, ImmutableSet<BuildTarget>> index;
 
   public ExportedDepsClosureResolver(TargetGraph targetGraph) {
-    Preconditions.checkArgument(targetGraph.isAcyclic());
     this.targetGraph = targetGraph;
     index = new HashMap<>();
   }
@@ -55,25 +52,24 @@ public class ExportedDepsClosureResolver {
     }
 
     ImmutableSet<BuildTarget> exportedDeps = ImmutableSet.of();
-    TargetNode<?> targetNode = targetGraph.get(buildTarget);
-    if (targetNode.getType().equals(JavaLibraryDescription.TYPE)) {
+    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    if (targetNode.getDescription() instanceof JavaLibraryDescription) {
       JavaLibraryDescription.Arg arg = (JavaLibraryDescription.Arg) targetNode.getConstructorArg();
       exportedDeps = arg.exportedDeps;
-    } else if (targetNode.getType().equals(AndroidLibraryDescription.TYPE)) {
+    } else if (targetNode.getDescription() instanceof AndroidLibraryDescription) {
       AndroidLibraryDescription.Arg arg =
           (AndroidLibraryDescription.Arg) targetNode.getConstructorArg();
       exportedDeps = arg.exportedDeps;
     }
 
-    ImmutableSet<BuildTarget> exportedDepsClosure = FluentIterable.from(exportedDeps)
-        .transformAndConcat(
-            new Function<BuildTarget, Iterable<BuildTarget>>() {
-              @Override
-              public Iterable<BuildTarget> apply(BuildTarget input) {
-                return Iterables.concat(ImmutableSet.of(input), getExportedDepsClosure(input));
-              }
-            })
-        .toSet();
+    ImmutableSet<BuildTarget> exportedDepsClosure = exportedDeps
+        .stream()
+        .flatMap(target ->
+            Stream.concat(
+                Stream.of(target),
+                getExportedDepsClosure(target).stream()))
+        .collect(MoreCollectors.toImmutableSet());
+
     index.put(buildTarget, exportedDepsClosure);
     return exportedDepsClosure;
   }

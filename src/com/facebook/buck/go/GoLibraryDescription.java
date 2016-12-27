@@ -26,7 +26,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
@@ -34,6 +33,7 @@ import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -53,17 +53,10 @@ public class GoLibraryDescription implements
     Flavored,
     MetadataProvidingDescription<GoLibraryDescription.Arg> {
 
-  private static final BuildRuleType TYPE = BuildRuleType.of("go_library");
-
   private final GoBuckConfig goBuckConfig;
 
   public GoLibraryDescription(GoBuckConfig goBuckConfig) {
     this.goBuckConfig = goBuckConfig;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -142,7 +135,7 @@ public class GoLibraryDescription implements
               .append(args.exportedDeps));
     }
 
-    return new NoopBuildRule(params, new SourcePathResolver(resolver));
+    return new NoopBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
   }
 
   @SuppressFieldNotInitialized

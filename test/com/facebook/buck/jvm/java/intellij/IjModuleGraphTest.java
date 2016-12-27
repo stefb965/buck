@@ -39,9 +39,11 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.GenruleBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
@@ -63,16 +65,16 @@ public class IjModuleGraphTest {
 
   @Test
   public void testModuleCoalescing() {
-    TargetNode<?> guava = JavaLibraryBuilder
+    TargetNode<?, ?> guava = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third_party/java/guava:guava"))
         .build();
 
-    TargetNode<?> base = JavaLibraryBuilder
+    TargetNode<?, ?> base = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .addDep(guava.getBuildTarget())
         .build();
 
-    TargetNode<?> baseTests = JavaTestBuilder
+    TargetNode<?, ?> baseTests = JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:tests"))
         .addDep(guava.getBuildTarget())
         .build();
@@ -89,11 +91,11 @@ public class IjModuleGraphTest {
 
   @Test
   public void testSimpleDependencies() {
-    TargetNode<?> libraryTarget = JavaLibraryBuilder
+    TargetNode<?, ?> libraryTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/library:library"))
         .build();
 
-    TargetNode<?> productTarget = JavaLibraryBuilder
+    TargetNode<?, ?> productTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/product:product"))
         .addDep(libraryTarget.getBuildTarget())
         .build();
@@ -104,23 +106,23 @@ public class IjModuleGraphTest {
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
 
     assertEquals(
-        ImmutableMap.of(libraryModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(libraryModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(productModule));
     assertTrue(moduleGraph.getDependentModulesFor(libraryModule).isEmpty());
   }
 
   @Test
   public void testExportedDependencies() {
-    TargetNode<?> junitReflect = JavaLibraryBuilder
+    TargetNode<?, ?> junitReflect = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/reflect:reflect"))
         .build();
 
-    TargetNode<?> junitCore = JavaLibraryBuilder
+    TargetNode<?, ?> junitCore = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/core:core"))
         .addExportedDep(junitReflect.getBuildTarget())
         .build();
 
-    TargetNode<?> junitRule = JavaLibraryBuilder
+    TargetNode<?, ?> junitRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/rule:rule"))
         .addDep(junitCore.getBuildTarget())
         .build();
@@ -137,23 +139,23 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            junitReflectModule, IjModuleGraph.DependencyType.PROD,
-            junitCoreModule, IjModuleGraph.DependencyType.PROD),
+            junitReflectModule, DependencyType.PROD,
+            junitCoreModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(junitRuleModule));
   }
 
   @Test
   public void testDoesNotDependOnSelfViaExportedDependencies() {
-    TargetNode<?> libraryTypes = JavaLibraryBuilder
+    TargetNode<?, ?> libraryTypes = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/library:types"))
         .build();
 
-    TargetNode<?> reExporter = JavaLibraryBuilder
+    TargetNode<?, ?> reExporter = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/reexporter:reexporter"))
         .addExportedDep(libraryTypes.getBuildTarget())
         .build();
 
-    TargetNode<?> libraryCore = JavaLibraryBuilder
+    TargetNode<?, ?> libraryCore = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/library:core"))
         .addDep(reExporter.getBuildTarget())
         .build();
@@ -168,44 +170,44 @@ public class IjModuleGraphTest {
     IjModule reExporterModule = getModuleForTarget(moduleGraph, reExporter);
 
     assertEquals(
-        ImmutableMap.of(reExporterModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(reExporterModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(libraryModule));
   }
 
   @Test
   public void testTestDependencies() {
-    TargetNode<?> junitTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> junitTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit:junit"))
         .build();
 
-    TargetNode<?> guavaTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> guavaTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/guava:guava"))
         .build();
 
-    TargetNode<?> hamcrestTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> hamcrestTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/hamcrest:hamcrest"))
         .build();
 
-    TargetNode<?> codeTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> codeTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/foo:foo"))
         .addSrc(Paths.get("java/com/foo/src/Foo.java"))
         .addDep(guavaTargetNode.getBuildTarget())
         .build();
 
-    TargetNode<?> inlineTestTargetNode = JavaTestBuilder
+    TargetNode<?, ?> inlineTestTargetNode = JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/foo:test"))
         .addDep(codeTargetNode.getBuildTarget())
         .addDep(junitTargetNode.getBuildTarget())
         .addSrc(Paths.get("java/com/foo/src/TestFoo.java"))
         .build();
 
-    TargetNode<?> secondInlineTestTargetNode = JavaTestBuilder
+    TargetNode<?, ?> secondInlineTestTargetNode = JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/foo:test2"))
         .addDep(hamcrestTargetNode.getBuildTarget())
         .addSrc(Paths.get("java/com/foo/test/TestFoo.java"))
         .build();
 
-    TargetNode<?> testTargetNode = JavaTestBuilder
+    TargetNode<?, ?> testTargetNode = JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//javatest/com/foo:foo"))
         .addDep(codeTargetNode.getBuildTarget())
         .addDep(junitTargetNode.getBuildTarget())
@@ -235,25 +237,25 @@ public class IjModuleGraphTest {
         moduleGraph.getDependentModulesFor(guavaModule));
 
     assertEquals(ImmutableMap.of(
-            guavaModule, IjModuleGraph.DependencyType.PROD,
-            junitModule, IjModuleGraph.DependencyType.PROD,
-            hamcrestModule, IjModuleGraph.DependencyType.TEST),
+            guavaModule, DependencyType.PROD,
+            junitModule, DependencyType.PROD,
+            hamcrestModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(codeModule));
 
     assertEquals(ImmutableMap.of(
-            codeModule, IjModuleGraph.DependencyType.TEST,
-            junitModule, IjModuleGraph.DependencyType.TEST),
+            codeModule, DependencyType.TEST,
+            junitModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(testModule));
   }
 
   @Test
   public void testDependenciesOnPrebuilt() {
-    TargetNode<?> guavaTargetNode = PrebuiltJarBuilder
+    TargetNode<?, ?> guavaTargetNode = PrebuiltJarBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/guava:guava"))
         .setBinaryJar(Paths.get("third-party/guava/guava.jar"))
         .build();
 
-    TargetNode<?> coreTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> coreTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/org/foo/core:core"))
         .addDep(guavaTargetNode.getBuildTarget())
         .build();
@@ -263,22 +265,22 @@ public class IjModuleGraphTest {
     IjModule coreModule = getModuleForTarget(moduleGraph, coreTargetNode);
     IjLibrary guavaElement = getLibraryForTarget(moduleGraph, guavaTargetNode);
 
-    assertEquals(ImmutableMap.of(guavaElement, IjModuleGraph.DependencyType.PROD),
+    assertEquals(ImmutableMap.of(guavaElement, DependencyType.PROD),
         moduleGraph.getDepsFor(coreModule));
   }
 
   @Test
   public void testExportedDependenciesOfTests() {
-    TargetNode<?> junitTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> junitTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit:junit"))
         .build();
 
-    TargetNode<?> testLibTargetNode = JavaLibraryBuilder
+    TargetNode<?, ?> testLibTargetNode = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//javatests/lib:lib"))
         .addExportedDep(junitTargetNode.getBuildTarget())
         .build();
 
-    TargetNode<?> testTargetNode = JavaTestBuilder
+    TargetNode<?, ?> testTargetNode = JavaTestBuilder
         .createBuilder(BuildTargetFactory.newInstance("//javatests/test:test"))
         .addDep(testLibTargetNode.getBuildTarget())
         .build();
@@ -294,23 +296,23 @@ public class IjModuleGraphTest {
     IjModule testModule = getModuleForTarget(moduleGraph, testTargetNode);
 
     assertEquals(ImmutableMap.of(
-            junitModule, IjModuleGraph.DependencyType.TEST,
-            testLibModule, IjModuleGraph.DependencyType.TEST),
+            junitModule, DependencyType.TEST,
+            testLibModule, DependencyType.TEST),
         moduleGraph.getDependentModulesFor(testModule));
   }
 
   @Test
   public void testExportedDependenciesDependsOnDepOfExportedDep() {
-    TargetNode<?> junitReflect = JavaLibraryBuilder
+    TargetNode<?, ?> junitReflect = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/reflect:reflect"))
         .build();
 
-    TargetNode<?> junitCore = JavaLibraryBuilder
+    TargetNode<?, ?> junitCore = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/core:core"))
         .addExportedDep(junitReflect.getBuildTarget())
         .build();
 
-    TargetNode<?> junitRule = JavaLibraryBuilder
+    TargetNode<?, ?> junitRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/rule:rule"))
         .addExportedDep(junitCore.getBuildTarget())
         .build();
@@ -327,29 +329,29 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            junitReflectModule, IjModuleGraph.DependencyType.PROD,
-            junitCoreModule, IjModuleGraph.DependencyType.PROD),
+            junitReflectModule, DependencyType.PROD,
+            junitCoreModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(junitRuleModule));
   }
 
   @Test
   public void testExportedDependenciesDontLeak() {
 
-    TargetNode<?> junitReflect = JavaLibraryBuilder
+    TargetNode<?, ?> junitReflect = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/reflect:reflect"))
         .build();
 
-    TargetNode<?> junitCore = JavaLibraryBuilder
+    TargetNode<?, ?> junitCore = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/core:core"))
         .addExportedDep(junitReflect.getBuildTarget())
         .build();
 
-    TargetNode<?> junitRule = JavaLibraryBuilder
+    TargetNode<?, ?> junitRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third-party/junit/rule:rule"))
         .addDep(junitCore.getBuildTarget())
         .build();
 
-    TargetNode<?> testRule = JavaLibraryBuilder
+    TargetNode<?, ?> testRule = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//tests/feature:tests"))
         .addDep(junitRule.getBuildTarget())
         .build();
@@ -365,21 +367,21 @@ public class IjModuleGraphTest {
     IjModule testRuleModule = getModuleForTarget(moduleGraph, testRule);
 
     assertEquals(
-        ImmutableMap.of(junitRuleModule, IjModuleGraph.DependencyType.PROD),
+        ImmutableMap.of(junitRuleModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(testRuleModule));
   }
 
   @Test
   public void testDropDependenciesToUnsupportedTargets() {
-    TargetNode<?> productKeystoreTarget = KeystoreBuilder
+    TargetNode<?, ?> productKeystoreTarget = KeystoreBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/library:keystore"))
         .build();
 
-    TargetNode<?> libraryJavaTarget = JavaLibraryBuilder
+    TargetNode<?, ?> libraryJavaTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/library:library"))
         .build();
 
-    TargetNode<?> productTarget = JavaLibraryBuilder
+    TargetNode<?, ?> productTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/product:child"))
         .addDep(productKeystoreTarget.getBuildTarget())
         .addDep(libraryJavaTarget.getBuildTarget())
@@ -394,23 +396,23 @@ public class IjModuleGraphTest {
     IjModule libraryModule = getModuleForTarget(moduleGraph, libraryJavaTarget);
     IjModule productModule = getModuleForTarget(moduleGraph, productTarget);
 
-    assertEquals(ImmutableMap.of(libraryModule, IjModuleGraph.DependencyType.PROD),
+    assertEquals(ImmutableMap.of(libraryModule, DependencyType.PROD),
         moduleGraph.getDependentModulesFor(productModule));
     assertEquals(2, moduleGraph.getModuleNodes().size());
   }
 
   @Test
   public void testCompiledShadow() {
-    TargetNode<?> productGenruleTarget = GenruleBuilder
+    TargetNode<?, ?> productGenruleTarget = GenruleBuilder
         .newGenruleBuilder(
             BuildTargetFactory.newInstance("//java/src/com/facebook/product:genrule"))
         .build();
 
-    TargetNode<?> libraryJavaTarget = JavaLibraryBuilder
+    TargetNode<?, ?> libraryJavaTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/library:library"))
         .build();
 
-    TargetNode<?> productTarget = JavaLibraryBuilder
+    TargetNode<?, ?> productTarget = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/product:product"))
         .addSrc(Paths.get("java/src/com/facebook/File.java"))
         .addSrcTarget(productGenruleTarget.getBuildTarget())
@@ -431,15 +433,15 @@ public class IjModuleGraphTest {
 
     assertEquals(
         ImmutableMap.of(
-            libraryModule, IjModuleGraph.DependencyType.PROD,
-            productLibrary, IjModuleGraph.DependencyType.COMPILED_SHADOW),
+            libraryModule, DependencyType.PROD,
+            productLibrary, DependencyType.COMPILED_SHADOW),
         moduleGraph.getDepsFor(productModule));
   }
 
   @Test
   public void testExtraClassPath() {
     final Path rDotJavaClassPath = Paths.get("buck-out/product/rdotjava_classpath");
-    final TargetNode<?> productTarget = AndroidLibraryBuilder
+    final TargetNode<?, ?> productTarget = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/src/com/facebook/product:product"))
         .addSrc(Paths.get("java/src/com/facebook/File.java"))
         .build();
@@ -463,12 +465,12 @@ public class IjModuleGraphTest {
     assertEquals(ImmutableSet.of(rDotJavaClassPath), productModule.getExtraClassPathDependencies());
     assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getClassPaths());
     assertEquals(moduleGraph.getDependentLibrariesFor(productModule),
-        ImmutableMap.of(rDotJavaLibrary, IjModuleGraph.DependencyType.PROD));
+        ImmutableMap.of(rDotJavaLibrary, DependencyType.PROD));
   }
 
 
   public void doSingleAggregationModePathFunctionTest(
-      IjModuleGraph.AggregationMode aggregationMode,
+      AggregationMode aggregationMode,
       int graphSize,
       boolean expectTrimmed) {
 
@@ -503,37 +505,37 @@ public class IjModuleGraphTest {
   public void testAggregationModePathFunction() {
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.NONE,
+        AggregationMode.NONE,
         10,
         /* expectTrimmed */ false);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.NONE,
+        AggregationMode.NONE,
         10000,
         /* expectTrimmed */ false);
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.SHALLOW,
+        AggregationMode.SHALLOW,
         10,
         /* expectTrimmed */ true);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.SHALLOW,
+        AggregationMode.SHALLOW,
         10000,
         /* expectTrimmed */ true);
 
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.AUTO,
+        AggregationMode.AUTO,
         10,
         /* expectTrimmed */ false);
     doSingleAggregationModePathFunctionTest(
-        IjModuleGraph.AggregationMode.AUTO,
+        AggregationMode.AUTO,
         10000,
         /* expectTrimmed */ true);
   }
 
   @Test
   public void testCustomAggregationMode() {
-    IjModuleGraph.AggregationMode testAggregationMode =
-        new IjModuleGraph.AggregationMode(2);
+    AggregationMode testAggregationMode =
+        new AggregationMode(2);
 
     ImmutableList<Path> originalPaths = ImmutableList.of(
         Paths.get("a", "b", "c"),
@@ -559,26 +561,26 @@ public class IjModuleGraphTest {
 
   @Test(expected = HumanReadableException.class)
   public void testCustomAggregationModeAtZero() {
-    IjModuleGraph.AggregationMode.fromString("0");
+    AggregationMode.fromString("0");
     fail("Should not be able to construct an aggregator with zero minimum depth.");
   }
 
   @Test
   public void testModuleAggregation() {
-    TargetNode<?> guava = JavaLibraryBuilder
+    TargetNode<?, ?> guava = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third_party/java/guava:guava"))
         .build();
 
-    TargetNode<?> papaya = JavaLibraryBuilder
+    TargetNode<?, ?> papaya = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//:papaya"))
         .build();
 
-    TargetNode<?> base = JavaLibraryBuilder
+    TargetNode<?, ?> base = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .addDep(guava.getBuildTarget())
         .build();
 
-    TargetNode<?> core = JavaLibraryBuilder
+    TargetNode<?, ?> core = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/core:core"))
         .addDep(papaya.getBuildTarget())
         .build();
@@ -587,7 +589,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(guava, papaya, base, core),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule guavaModule = getModuleForTarget(moduleGraph, guava);
     IjModule papayaModule = getModuleForTarget(moduleGraph, papaya);
@@ -600,24 +602,24 @@ public class IjModuleGraphTest {
         Matchers.equalTo(Paths.get("java", "com", "example")));
     assertThat(
         moduleGraph.getDepsFor(baseModule),
-        Matchers.equalTo(ImmutableMap.<IjProjectElement, IjModuleGraph.DependencyType>of(
-                papayaModule, IjModuleGraph.DependencyType.PROD,
-                guavaModule, IjModuleGraph.DependencyType.PROD)));
+        Matchers.equalTo(ImmutableMap.<IjProjectElement, DependencyType>of(
+                papayaModule, DependencyType.PROD,
+                guavaModule, DependencyType.PROD)));
   }
 
   @Test
   public void testModuleAggregationDoesNotCoalesceAndroidResources() {
-    TargetNode<?> blah1 = AndroidResourceBuilder
+    TargetNode<?, ?> blah1 = AndroidResourceBuilder
         .createBuilder(
             BuildTargetFactory.newInstance("//android_res/com/example/blah/blah/blah:res"))
         .build();
 
-    TargetNode<?> blah2 = AndroidResourceBuilder
+    TargetNode<?, ?> blah2 = AndroidResourceBuilder
         .createBuilder(
             BuildTargetFactory.newInstance("//android_res/com/example/blah/blah/blah2:res"))
         .build();
 
-     TargetNode<?> commonApp = AndroidLibraryBuilder
+     TargetNode<?, ?> commonApp = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .addDep(blah1.getBuildTarget())
         .addDep(blah2.getBuildTarget())
@@ -627,7 +629,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(blah1, blah2, commonApp),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
     IjModule blah2Module = getModuleForTarget(moduleGraph, blah2);
@@ -640,17 +642,17 @@ public class IjModuleGraphTest {
 
   @Test
   public void testModuleAggregationDoesNotCoalesceJava8() {
-    TargetNode<?> blah1 = JavaLibraryBuilder
+    TargetNode<?, ?> blah1 = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/blah/blah:blah"))
         .setSourceLevel("1.8")
         .build();
 
-    TargetNode<?> blah2 = JavaLibraryBuilder
+    TargetNode<?, ?> blah2 = JavaLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/blah/blah2:blah2"))
         .setTargetLevel("1.8")
         .build();
 
-     TargetNode<?> commonApp = AndroidLibraryBuilder
+     TargetNode<?, ?> commonApp = AndroidLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
         .addDep(blah1.getBuildTarget())
         .addDep(blah2.getBuildTarget())
@@ -660,7 +662,7 @@ public class IjModuleGraphTest {
         ImmutableSet.of(blah1, blah2, commonApp),
         ImmutableMap.of(),
         Functions.constant(Optional.empty()),
-        IjModuleGraph.AggregationMode.SHALLOW);
+        AggregationMode.SHALLOW);
 
     IjModule blah1Module = getModuleForTarget(moduleGraph, blah1);
     IjModule blah2Module = getModuleForTarget(moduleGraph, blah2);
@@ -769,82 +771,84 @@ public class IjModuleGraphTest {
   }
 
 
-  public static IjModuleGraph createModuleGraph(ImmutableSet<TargetNode<?>> targets) {
+  public static IjModuleGraph createModuleGraph(ImmutableSet<TargetNode<?, ?>> targets) {
     return createModuleGraph(targets, ImmutableMap.of(),
         Functions.constant(Optional.empty()));
   }
 
   public static IjModuleGraph createModuleGraph(
-      ImmutableSet<TargetNode<?>> targets,
-      final ImmutableMap<TargetNode<?>, Path> javaLibraryPaths,
-      Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver) {
+      ImmutableSet<TargetNode<?, ?>> targets,
+      final ImmutableMap<TargetNode<?, ?>, Path> javaLibraryPaths,
+      Function<? super TargetNode<?, ?>, Optional<Path>> rDotJavaClassPathResolver) {
     return createModuleGraph(targets,
         javaLibraryPaths,
         rDotJavaClassPathResolver,
-        IjModuleGraph.AggregationMode.AUTO);
+        AggregationMode.AUTO);
   }
 
   public static IjModuleGraph createModuleGraph(
-      ImmutableSet<TargetNode<?>> targets,
-      final ImmutableMap<TargetNode<?>, Path> javaLibraryPaths,
-      final Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver,
-      IjModuleGraph.AggregationMode aggregationMode) {
-    final SourcePathResolver sourcePathResolver = new SourcePathResolver(
+      ImmutableSet<TargetNode<?, ?>> targets,
+      final ImmutableMap<TargetNode<?, ?>, Path> javaLibraryPaths,
+      final Function<? super TargetNode<?, ?>, Optional<Path>> rDotJavaClassPathResolver,
+      AggregationMode aggregationMode) {
+    final SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    DefaultIjLibraryFactory.IjLibraryFactoryResolver sourceOnlyResolver =
-        new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
+    ));
+    IjLibraryFactoryResolver sourceOnlyResolver =
+        new IjLibraryFactoryResolver() {
           @Override
           public Path getPath(SourcePath path) {
             return sourcePathResolver.getAbsolutePath(path);
           }
 
           @Override
-          public Optional<Path> getPathIfJavaLibrary(TargetNode<?> targetNode) {
+          public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
             return Optional.ofNullable(javaLibraryPaths.get(targetNode));
           }
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     IjProjectConfig projectConfig = IjProjectBuckConfig.create(buckConfig);
     IjModuleFactory moduleFactory = new IjModuleFactory(
-        new IjModuleFactory.IjModuleFactoryResolver() {
+        new FakeProjectFilesystem(),
+        new IjModuleFactoryResolver() {
           @Override
-          public Optional<Path> getDummyRDotJavaPath(TargetNode<?> targetNode) {
+          public Optional<Path> getDummyRDotJavaPath(TargetNode<?, ?> targetNode) {
             return rDotJavaClassPathResolver.apply(targetNode);
           }
 
           @Override
-          public Path getAndroidManifestPath(TargetNode<AndroidBinaryDescription.Arg> targetNode) {
+          public Path getAndroidManifestPath(
+              TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
             return Paths.get("TestAndroidManifest.xml");
           }
 
           @Override
           public Optional<Path> getLibraryAndroidManifestPath(
-              TargetNode<AndroidLibraryDescription.Arg> targetNode) {
+              TargetNode<AndroidLibraryDescription.Arg, ?> targetNode) {
             return Optional.empty();
           }
 
           @Override
           public Optional<Path> getProguardConfigPath(
-              TargetNode<AndroidBinaryDescription.Arg> targetNode) {
+              TargetNode<AndroidBinaryDescription.Arg, ?> targetNode) {
             return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAndroidResourcePath(
-              TargetNode<AndroidResourceDescription.Arg> targetNode) {
+              TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
             return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAssetsPath(
-              TargetNode<AndroidResourceDescription.Arg> targetNode) {
+              TargetNode<AndroidResourceDescription.Arg, ?> targetNode) {
             return Optional.empty();
           }
 
           @Override
           public Optional<Path> getAnnotationOutputPath(
-              TargetNode<? extends JvmLibraryArg> targetNode) {
+              TargetNode<? extends JvmLibraryArg, ?> targetNode) {
             return Optional.empty();
           }
         },
@@ -862,7 +866,7 @@ public class IjModuleGraphTest {
   public static IjProjectElement getProjectElementForTarget(
       IjModuleGraph graph,
       Class<? extends IjProjectElement> type,
-      final TargetNode<?> target) {
+      final TargetNode<?, ?> target) {
     return FluentIterable.from(graph.getNodes())
         .filter(type)
         .firstMatch(
@@ -870,11 +874,11 @@ public class IjModuleGraphTest {
                 input1 -> input1.getBuildTarget().equals(target.getBuildTarget()))).get();
   }
 
-  public static IjModule getModuleForTarget(IjModuleGraph graph, final TargetNode<?> target) {
+  public static IjModule getModuleForTarget(IjModuleGraph graph, final TargetNode<?, ?> target) {
     return (IjModule) getProjectElementForTarget(graph, IjModule.class, target);
   }
 
-  public static IjLibrary getLibraryForTarget(IjModuleGraph graph, final TargetNode<?> target) {
+  public static IjLibrary getLibraryForTarget(IjModuleGraph graph, final TargetNode<?, ?> target) {
     return (IjLibrary) getProjectElementForTarget(graph, IjLibrary.class, target);
   }
 }

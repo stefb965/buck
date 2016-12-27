@@ -34,9 +34,11 @@ import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -178,7 +180,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
     }
   }
 
-  TargetNode<?> getNode(QueryTarget target)
+  TargetNode<?, ?> getNode(QueryTarget target)
       throws QueryException {
     if (!(target instanceof QueryBuildTarget)) {
       throw new IllegalArgumentException(String.format(
@@ -218,9 +220,9 @@ public class BuckQueryEnvironment implements QueryEnvironment {
     return builder.build();
   }
 
-  public ImmutableSet<TargetNode<?>> getNodesFromQueryTargets(Iterable<QueryTarget> input)
+  public ImmutableSet<TargetNode<?, ?>> getNodesFromQueryTargets(Iterable<QueryTarget> input)
       throws QueryException {
-    ImmutableSet.Builder<TargetNode<?>> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?, ?>> builder = ImmutableSet.builder();
     for (QueryTarget target : input) {
       builder.add(getNode(target));
     }
@@ -228,9 +230,9 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   /** Given a set of target nodes, returns the build targets. */
-  private static Set<BuildTarget> getTargetsFromNodes(Iterable<TargetNode<?>> input) {
+  private static Set<BuildTarget> getTargetsFromNodes(Iterable<TargetNode<?, ?>> input) {
     Set<BuildTarget> result = new LinkedHashSet<>();
-    for (TargetNode<?> node : input) {
+    for (TargetNode<?, ?> node : input) {
       result.add(node.getBuildTarget());
     }
     return result;
@@ -241,7 +243,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       throws QueryException, InterruptedException {
     Set<QueryTarget> result = new LinkedHashSet<>();
     for (QueryTarget target : targets) {
-      TargetNode<?> node = getNode(target);
+      TargetNode<?, ?> node = getNode(target);
       result.addAll(getTargetsFromBuildTargetsContainer(graph.getOutgoingNodesFor(node)));
     }
     return result;
@@ -252,16 +254,24 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       throws QueryException, InterruptedException {
     Set<QueryTarget> result = new LinkedHashSet<>();
     for (QueryTarget target : targets) {
-      TargetNode<?> node = getNode(target);
+      TargetNode<?, ?> node = getNode(target);
       result.addAll(getTargetsFromBuildTargetsContainer(graph.getIncomingNodesFor(node)));
     }
     return result;
   }
 
   @Override
+  public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
+    TargetNode<?, ?> node = getNode(target);
+    return node.getInputs().stream()
+        .map(QueryFileTarget::of)
+        .collect(MoreCollectors.toImmutableSet());
+  }
+
+  @Override
   public ImmutableSet<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets)
       throws QueryException, InterruptedException {
-    Set<TargetNode<?>> nodes = new LinkedHashSet<>();
+    Set<TargetNode<?, ?>> nodes = new LinkedHashSet<>();
     for (QueryTarget target : targets) {
       nodes.add(getNode(target));
     }
@@ -364,7 +374,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) throws QueryException, InterruptedException {
-    return getNode(target).getType().getName();
+    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
   }
 
   @Override

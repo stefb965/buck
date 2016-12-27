@@ -20,9 +20,9 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -33,16 +33,10 @@ import java.util.Optional;
 
 public class RemoteFileDescription implements Description<RemoteFileDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("remote_file");
   private final Downloader downloader;
 
   public RemoteFileDescription(Downloader downloader) {
     this.downloader = downloader;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -71,11 +65,12 @@ public class RemoteFileDescription implements Description<RemoteFileDescription.
 
     return new RemoteFile(
         params,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         downloader,
         args.url,
         sha1,
-        out);
+        out,
+        args.type.orElse(RemoteFile.Type.DATA));
   }
 
   @SuppressFieldNotInitialized
@@ -83,5 +78,6 @@ public class RemoteFileDescription implements Description<RemoteFileDescription.
     public URI url;
     public String sha1;
     public Optional<String> out;
+    public Optional<RemoteFile.Type> type;
   }
 }

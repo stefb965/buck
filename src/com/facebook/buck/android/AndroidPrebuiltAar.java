@@ -19,13 +19,14 @@ package com.facebook.buck.android;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.PrebuiltJar;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.sha1.Sha1HashCode;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -44,6 +45,7 @@ public class AndroidPrebuiltAar
   public AndroidPrebuiltAar(
       BuildRuleParams androidLibraryParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       SourcePath proguardConfig,
       SourcePath nativeLibsDirectory,
       PrebuiltJar prebuiltJar,
@@ -51,10 +53,12 @@ public class AndroidPrebuiltAar
       JavacOptions javacOptions,
       CompileToJarStepFactory compileStepFactory,
       Iterable<PrebuiltJar> exportedDeps,
-      SourcePath abiJar) {
+      BuildTarget abiJar,
+      ImmutableSortedSet<SourcePath> abiInputs) {
     super(
         androidLibraryParams,
         resolver,
+        ruleFinder,
         /* srcs */ ImmutableSortedSet.of(),
         /* resources */ ImmutableSortedSet.of(),
         Optional.of(proguardConfig),
@@ -65,6 +69,7 @@ public class AndroidPrebuiltAar
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
         abiJar,
+        abiInputs,
         /* additionalClasspathEntries */ ImmutableSet.of(),
         javacOptions,
         /* trackClassUsage */ false,
@@ -90,8 +95,9 @@ public class AndroidPrebuiltAar
   }
 
   @Override
-  public Sha1HashCode getTextSymbolsAbiKey() {
-    return unzipAar.getTextSymbolsHash();
+  public SourcePath getPathToRDotJavaPackageFile() {
+    return new BuildTargetSourcePath(
+        unzipAar.getBuildTarget(), unzipAar.getPathToRDotJavaPackageFile());
   }
 
   @Override

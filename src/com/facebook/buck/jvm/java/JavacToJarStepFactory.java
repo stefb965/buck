@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +54,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
       ImmutableSortedSet<Path> sourceFilePaths,
       BuildTarget invokingRule,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
@@ -72,7 +74,6 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
         new JavacStep(
             outputDirectory,
             usedClassesFileWriter,
-            DEFAULT_FILE_MANAGER_FACTORY,
             workingDirectory,
             sourceFilePaths,
             pathToSrcsList,
@@ -82,8 +83,16 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
             invokingRule,
             suggestBuildRules,
             resolver,
+            ruleFinder,
             filesystem,
-            new ClasspathChecker()));
+            new ClasspathChecker(),
+            Optional.empty()));
+  }
+
+  @Override
+  Optional<String> getBootClasspath(BuildContext context) {
+    JavacOptions buildTimeOptions = amender.amend(javacOptions, context);
+    return buildTimeOptions.getBootclasspath();
   }
 
   @Override
@@ -92,6 +101,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
       ImmutableSortedSet<Path> sourceFilePaths,
       BuildTarget invokingRule,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
@@ -135,6 +145,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
               sourceFilePaths,
               invokingRule,
               resolver,
+              ruleFinder,
               filesystem,
               declaredClasspathEntries,
               buildTimeOptions,
@@ -153,6 +164,7 @@ public class JavacToJarStepFactory extends BaseCompileToJarStepFactory {
           sourceFilePaths,
           invokingRule,
           resolver,
+          ruleFinder,
           filesystem,
           declaredClasspathEntries,
           outputDirectory,

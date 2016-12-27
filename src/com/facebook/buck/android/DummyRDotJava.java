@@ -32,13 +32,12 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.keys.AbiRule;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -55,10 +54,11 @@ import java.util.Set;
  * since these are later merged together into a single {@code R.java} file by {@link AaptStep}.
  */
 public class DummyRDotJava extends AbstractBuildRule
-    implements AbiRule, HasJavaAbi {
+    implements SupportsInputBasedRuleKey, HasJavaAbi {
 
+  private final SourcePathRuleFinder ruleFinder;
   private final ImmutableList<HasAndroidResourceDeps> androidResourceDeps;
-  private final SourcePath abiJar;
+  private final BuildTarget abiJar;
   private final Path outputJar;
   @AddToRuleKey
   private final JavacOptions javacOptions;
@@ -68,17 +68,48 @@ public class DummyRDotJava extends AbstractBuildRule
   private final Optional<String> unionPackage;
   @AddToRuleKey
   private final Optional<String> finalRName;
+  @AddToRuleKey
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  private final ImmutableList<SourcePath> abiInputs;
 
   public DummyRDotJava(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       Set<HasAndroidResourceDeps> androidResourceDeps,
-      SourcePath abiJar,
+      BuildTarget abiJar,
       JavacOptions javacOptions,
       boolean forceFinalResourceIds,
       Optional<String> unionPackage,
       Optional<String> finalRName) {
-    super(params, resolver);
+    this(
+        params,
+        resolver,
+        ruleFinder,
+        androidResourceDeps,
+        abiJar,
+        javacOptions,
+        forceFinalResourceIds,
+        unionPackage,
+        finalRName,
+        abiPaths(androidResourceDeps));
+  }
+
+  private DummyRDotJava(
+      BuildRuleParams params,
+      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
+      Set<HasAndroidResourceDeps> androidResourceDeps,
+      BuildTarget abiJar,
+      JavacOptions javacOptions,
+      boolean forceFinalResourceIds,
+      Optional<String> unionPackage,
+      Optional<String> finalRName,
+      ImmutableList<SourcePath> abiInputs) {
+    super(
+        params.appendExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiInputs)),
+        resolver);
+    this.ruleFinder = ruleFinder;
     // Sort the input so that we get a stable ABI for the same set of resources.
     this.androidResourceDeps = FluentIterable.from(androidResourceDeps)
         .toSortedList(HasBuildTarget.BUILD_TARGET_COMPARATOR);
@@ -88,6 +119,15 @@ public class DummyRDotJava extends AbstractBuildRule
     this.forceFinalResourceIds = forceFinalResourceIds;
     this.unionPackage = unionPackage;
     this.finalRName = finalRName;
+    this.abiInputs = abiInputs;
+  }
+
+  private static ImmutableList<SourcePath> abiPaths(Iterable<HasAndroidResourceDeps> deps) {
+    FluentIterable<HasAndroidResourceDeps> iter = FluentIterable.from(deps);
+    return iter
+        .transform(HasAndroidResourceDeps::getPathToTextSymbolsFile)
+        .append(iter.transform(HasAndroidResourceDeps::getPathToRDotJavaPackageFile))
+        .toList();
   }
 
   @Override
@@ -172,6 +212,7 @@ public class DummyRDotJava extends AbstractBuildRule
             javacOptions,
             getBuildTarget(),
             getResolver(),
+            ruleFinder,
             getProjectFilesystem());
     steps.add(javacStep);
     buildableContext.recordArtifact(rDotJavaClassesFolder);
@@ -193,11 +234,6 @@ public class DummyRDotJava extends AbstractBuildRule
             pathToAbiOutputFile));
 
     return steps.build();
-  }
-
-  @Override
-  public Sha1HashCode getAbiKeyForDeps(DefaultRuleKeyBuilderFactory defaultRuleKeyBuilderFactory) {
-    return HasAndroidResourceDeps.hashAbi(androidResourceDeps);
   }
 
   public static Path getRDotJavaSrcFolder(BuildTarget buildTarget, ProjectFilesystem filesystem) {
@@ -240,7 +276,7 @@ public class DummyRDotJava extends AbstractBuildRule
   }
 
   @Override
-  public Optional<SourcePath> getAbiJar() {
+  public Optional<BuildTarget> getAbiJar() {
     return Optional.of(abiJar);
   }
 

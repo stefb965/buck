@@ -26,10 +26,11 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class AndroidResourceBuilder extends AbstractNodeBuilder<AndroidResourceDescription.Arg> {
+public class AndroidResourceBuilder
+    extends AbstractNodeBuilder<AndroidResourceDescription.Arg, AndroidResourceDescription> {
 
   private AndroidResourceBuilder(BuildTarget target) {
-    super(new AndroidResourceDescription(), target);
+    super(new AndroidResourceDescription(false), target);
   }
 
   public static AndroidResourceBuilder createBuilder(BuildTarget target) {
@@ -48,6 +49,11 @@ public class AndroidResourceBuilder extends AbstractNodeBuilder<AndroidResourceD
 
   public AndroidResourceBuilder setRes(Path res) {
     return setRes(new PathSourcePath(new FakeProjectFilesystem(), res));
+  }
+
+  public AndroidResourceBuilder setAssets(SourcePath assets) {
+    arg.assets = Optional.of(assets);
+    return this;
   }
 
   public AndroidResourceBuilder setRDotJavaPackage(String rDotJavaPackage) {

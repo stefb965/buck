@@ -43,6 +43,7 @@ import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.AdbOptions;
@@ -246,6 +247,7 @@ public class InstallCommand extends BuildCommand {
                     new PrintStreamProcessExecutorFactory(),
                     new VersionControlBuckConfig(params.getBuckConfig().getRawConfig()),
                     params.getEnvironment())))
+            .setCellPathResolver(params.getCell().getCellPathResolver())
             .build();
         exitCode = installApk(params, (InstallableApk) buildRule, executionContext);
         if (exitCode != 0) {
@@ -315,7 +317,7 @@ public class InstallCommand extends BuildCommand {
                 .first()
                 .get();
 
-        TargetNode<?> node = params.getParser().getTargetNode(
+        TargetNode<?, ?> node = params.getParser().getTargetNode(
             params.getBuckEventBus(),
             params.getCell(),
             getEnableParserProfiling(),
@@ -323,7 +325,8 @@ public class InstallCommand extends BuildCommand {
             target);
 
         if (node != null &&
-            node.getDescription().getBuildRuleType().equals(AppleBundleDescription.TYPE)) {
+            Description.getBuildRuleType(node.getDescription())
+                .equals(Description.getBuildRuleType(AppleBundleDescription.class))) {
           for (Flavor flavor : node.getBuildTarget().getFlavors()) {
             if (ApplePlatform.needsInstallHelper(flavor.getName())) {
               AppleConfig appleConfig = new AppleConfig(params.getBuckConfig());

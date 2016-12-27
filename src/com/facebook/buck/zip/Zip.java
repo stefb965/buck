@@ -17,6 +17,7 @@
 package com.facebook.buck.zip;
 
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -28,19 +29,18 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 
-public class Zip extends AbstractBuildRule {
+public class Zip extends AbstractBuildRule implements HasOutputName {
 
-  @AddToRuleKey(stringify = true)
-  private final Path output;
+  @AddToRuleKey
+  private final String name;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
-  private final Path scratchDir;
+  @AddToRuleKey
   private final boolean flatten;
 
   public Zip(
@@ -50,18 +50,25 @@ public class Zip extends AbstractBuildRule {
       ImmutableSortedSet<SourcePath> sources,
       boolean flatten) {
     super(params, resolver);
-    this.sources = Preconditions.checkNotNull(sources);
+    this.name = outputName;
+    this.sources = sources;
     this.flatten = flatten;
+  }
 
-    this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), outputName);
-    this.scratchDir =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.zip.scratch");
+  private Path getOutput() {
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
+        .resolve(this.name);
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context,
       BuildableContext buildableContext) {
+
+    Path output = getOutput();
+    Path scratchDir =
+        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.zip.scratch");
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     steps.add(new RmStep(getProjectFilesystem(), output, true));
@@ -75,7 +82,7 @@ public class Zip extends AbstractBuildRule {
         new ZipStep(
             getProjectFilesystem(),
             output,
-            ImmutableSortedSet.<Path>of(),
+            ImmutableSortedSet.of(),
             /* junk paths */ flatten,
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             scratchDir));
@@ -87,6 +94,12 @@ public class Zip extends AbstractBuildRule {
 
   @Override
   public Path getPathToOutput() {
-    return output;
+    return getOutput();
   }
+
+  @Override
+  public String getOutputName() {
+    return name;
+  }
+
 }

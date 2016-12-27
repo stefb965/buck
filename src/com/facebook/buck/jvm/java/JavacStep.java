@@ -23,6 +23,7 @@ import com.facebook.buck.jvm.core.SuggestBuildRules;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -56,8 +57,6 @@ public class JavacStep implements Step {
 
   private final ClassUsageFileWriter usedClassesFileWriter;
 
-  private final StandardJavaFileManagerFactory fileManagerFactory;
-
   private final Optional<Path> workingDirectory;
 
   private final ImmutableSortedSet<Path> javaSourceFilePaths;
@@ -72,6 +71,8 @@ public class JavacStep implements Step {
 
   private final Optional<SuggestBuildRules> suggestBuildRules;
 
+  private final SourcePathRuleFinder ruleFinder;
+
   private final SourcePathResolver resolver;
 
   private final ProjectFilesystem filesystem;
@@ -79,6 +80,8 @@ public class JavacStep implements Step {
   private final Javac javac;
 
   private final ClasspathChecker classpathChecker;
+
+  private final Optional<DirectToJarOutputSettings> directToJarOutputSettings;
 
   private static final Pattern IS_WARNING =
       Pattern.compile(":\\s*warning:", Pattern.CASE_INSENSITIVE);
@@ -112,7 +115,6 @@ public class JavacStep implements Step {
   public JavacStep(
       Path outputDirectory,
       ClassUsageFileWriter usedClassesFileWriter,
-      StandardJavaFileManagerFactory fileManagerFactory,
       Optional<Path> workingDirectory,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
@@ -122,11 +124,12 @@ public class JavacStep implements Step {
       BuildTarget invokingRule,
       Optional<SuggestBuildRules> suggestBuildRules,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
-      ClasspathChecker classpathChecker) {
+      ClasspathChecker classpathChecker,
+      Optional<DirectToJarOutputSettings> directToJarOutputSettings) {
     this.outputDirectory = outputDirectory;
     this.usedClassesFileWriter = usedClassesFileWriter;
-    this.fileManagerFactory = fileManagerFactory;
     this.workingDirectory = workingDirectory;
     this.javaSourceFilePaths = javaSourceFilePaths;
     this.pathToSrcsList = pathToSrcsList;
@@ -136,8 +139,10 @@ public class JavacStep implements Step {
     this.invokingRule = invokingRule;
     this.suggestBuildRules = suggestBuildRules;
     this.resolver = resolver;
+    this.ruleFinder = ruleFinder;
     this.filesystem = filesystem;
     this.classpathChecker = classpathChecker;
+    this.directToJarOutputSettings = directToJarOutputSettings;
   }
 
   @Override
@@ -167,94 +172,124 @@ public class JavacStep implements Step {
           stdout,
           stderr,
           Optional.of(verbosity))) {
-
       Javac javac = getJavac();
-
       JavacExecutionContext javacExecutionContext = JavacExecutionContext.of(
           new JavacEventSinkToBuckEventBusBridge(firstOrderContext.getBuckEventBus()),
           stderr,
           firstOrderContext.getClassLoaderCache(),
           firstOrderContext.getObjectMapper(),
           verbosity,
+          firstOrderContext.getCellPathResolver(),
           firstOrderContext.getJavaPackageFinder(),
           filesystem,
           usedClassesFileWriter,
-          fileManagerFactory,
           firstOrderContext.getEnvironment(),
           firstOrderContext.getProcessExecutor(),
-          getAbsolutePathsForJavacInputs(javac));
-
-      int declaredDepsResult = javac.buildWithClasspath(
-          javacExecutionContext,
-          invokingRule,
-          getOptions(context, declaredClasspathEntries),
-          javacOptions.getSafeAnnotationProcessors(),
-          javaSourceFilePaths,
-          pathToSrcsList,
-          workingDirectory);
-
-      String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
-      String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
-
-      Optional<String> returnedStderr;
-
-      if (declaredDepsResult != 0) {
-        returnedStderr = Optional.of(firstOrderStderr);
-
-        ImmutableList.Builder<String> errorMessage = ImmutableList.builder();
-        errorMessage.add(firstOrderStderr);
-
-        if (suggestBuildRules.isPresent()) {
-          ImmutableSet<String> failedImports = findFailedImports(firstOrderStderr);
-          ImmutableSortedSet<String> suggestions =
-            ImmutableSortedSet.copyOf(suggestBuildRules.get().suggest(failedImports));
-
-          if (!suggestions.isEmpty()) {
-            String invoker = invokingRule.toString();
-            errorMessage.add(String.format("Rule %s has failed to build.", invoker));
-            errorMessage.add(Joiner.on(LINE_SEPARATOR).join(failedImports));
-            errorMessage.add("Try adding the following deps:");
-            errorMessage.add(Joiner.on(LINE_SEPARATOR).join(suggestions));
-            errorMessage.add("");
-            errorMessage.add("");
-          }
-          CompilerErrorEvent evt = CompilerErrorEvent.create(
-              invokingRule,
-              firstOrderStderr,
-              CompilerErrorEvent.CompilerType.Java,
-              suggestions
-          );
-          context.postEvent(evt);
-        } else {
-          ImmutableSet<String> suggestions = ImmutableSet.of();
-          CompilerErrorEvent evt = CompilerErrorEvent.create(
-              invokingRule,
-              firstOrderStderr,
-              CompilerErrorEvent.CompilerType.Java,
-              suggestions
-          );
-          context.postEvent(evt);
-        }
-
-        if (!firstOrderStdout.isEmpty()) {
-          context.postEvent(ConsoleEvent.info("%s", firstOrderStdout));
-        }
-        if (!firstOrderStderr.isEmpty()) {
-          context.postEvent(ConsoleEvent.severe("%s", Joiner.on("\n").join(errorMessage.build())));
-        }
-      } else {
-        returnedStderr = Optional.empty();
-      }
-
-      return StepExecutionResult.of(declaredDepsResult, returnedStderr);
+          getAbsolutePathsForJavacInputs(javac),
+          directToJarOutputSettings);
+      return performBuild(context, stdout, stderr, javac, javacExecutionContext);
     }
+  }
+
+  private StepExecutionResult performBuild(
+      ExecutionContext context,
+      CapturingPrintStream stdout,
+      CapturingPrintStream stderr,
+      Javac javac,
+      JavacExecutionContext javacExecutionContext) throws InterruptedException {
+    int declaredDepsBuildResult = javac.buildWithClasspath(
+        javacExecutionContext,
+        invokingRule,
+        getOptions(context, declaredClasspathEntries),
+        javacOptions.getSafeAnnotationProcessors(),
+        javaSourceFilePaths,
+        pathToSrcsList,
+        workingDirectory,
+        javacOptions.getAbiGenerationMode());
+    String firstOrderStdout = stdout.getContentsAsString(Charsets.UTF_8);
+    String firstOrderStderr = stderr.getContentsAsString(Charsets.UTF_8);
+    Optional<String> returnedStderr;
+    if (declaredDepsBuildResult != 0) {
+      returnedStderr = processBuildFailure(context, firstOrderStdout, firstOrderStderr);
+    } else {
+      returnedStderr = Optional.empty();
+    }
+    return StepExecutionResult.of(declaredDepsBuildResult, returnedStderr);
+  }
+
+  private Optional<String> processBuildFailure(
+      ExecutionContext context,
+      String firstOrderStdout,
+      String firstOrderStderr) {
+    Optional<String> returnedStderr;
+    returnedStderr = Optional.of(firstOrderStderr);
+
+    ImmutableList.Builder<String> errorMessage = ImmutableList.builder();
+    errorMessage.add(firstOrderStderr);
+
+    if (suggestBuildRules.isPresent()) {
+      processBuildFailureWithFailedImports(context, firstOrderStderr, errorMessage);
+    } else {
+      processGeneralBuildFailure(context, firstOrderStderr);
+    }
+
+    if (!firstOrderStdout.isEmpty()) {
+      context.postEvent(ConsoleEvent.info("%s", firstOrderStdout));
+    }
+    if (!firstOrderStderr.isEmpty()) {
+      context.postEvent(ConsoleEvent.severe("%s", Joiner.on("\n").join(errorMessage.build())));
+    }
+    return returnedStderr;
+  }
+
+  private void processGeneralBuildFailure(ExecutionContext context, String firstOrderStderr) {
+    ImmutableSet<String> suggestions = ImmutableSet.of();
+    CompilerErrorEvent evt = CompilerErrorEvent.create(
+        invokingRule,
+        firstOrderStderr,
+        CompilerErrorEvent.CompilerType.Java,
+        suggestions
+    );
+    context.postEvent(evt);
+  }
+
+  private void processBuildFailureWithFailedImports(
+      ExecutionContext context,
+      String firstOrderStderr, ImmutableList.Builder<String> errorMessage) {
+    ImmutableSet<String> failedImports = findFailedImports(firstOrderStderr);
+    ImmutableSortedSet<String> suggestions =
+      ImmutableSortedSet.copyOf(suggestBuildRules.get().suggest(failedImports));
+
+    if (!suggestions.isEmpty()) {
+      appendSuggestionMessage(errorMessage, failedImports, suggestions);
+    }
+    CompilerErrorEvent evt = CompilerErrorEvent.create(
+        invokingRule,
+        firstOrderStderr,
+        CompilerErrorEvent.CompilerType.Java,
+        suggestions
+    );
+    context.postEvent(evt);
+  }
+
+  private void appendSuggestionMessage(
+      ImmutableList.Builder<String> errorMessage,
+      ImmutableSet<String> failedImports,
+      ImmutableSortedSet<String> suggestions) {
+    String invoker = invokingRule.toString();
+    errorMessage.add(String.format("Rule %s has failed to build.", invoker));
+    errorMessage.add(Joiner.on(LINE_SEPARATOR).join(failedImports));
+    errorMessage.add("Try adding the following deps:");
+    errorMessage.add(Joiner.on(LINE_SEPARATOR).join(suggestions));
+    errorMessage.add("");
+    errorMessage.add("");
   }
 
   private ImmutableList<Path> getAbsolutePathsForJavacInputs(Javac javac) {
     return javac.getInputs().stream().flatMap(input -> {
       com.google.common.base.Optional<BuildRule> rule =
           com.google.common.base.Optional.fromNullable(
-              resolver.getRule(input).orElse(null));
+              ruleFinder.getRule(input).orElse(null));
       if (rule instanceof JavaLibrary) {
         return ((JavaLibrary) rule).getTransitiveClasspaths().stream();
       } else {

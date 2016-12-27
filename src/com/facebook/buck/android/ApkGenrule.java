@@ -21,11 +21,13 @@ import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.step.ExecutionContext;
@@ -56,11 +58,13 @@ public class ApkGenrule extends Genrule implements InstallableApk {
 
   private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID);
   @AddToRuleKey
-  private final SourcePath apk;
+  private final BuildTargetSourcePath apk;
+  private final InstallableApk installableApk;
 
   ApkGenrule(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       List<SourcePath> srcs,
       Optional<Arg> cmd,
       Optional<Arg> bash,
@@ -75,11 +79,11 @@ public class ApkGenrule extends Genrule implements InstallableApk {
         cmdExe,
         /* out */ params.getBuildTarget().getShortNameAndFlavorPostfix() + ".apk");
 
-    Optional<BuildRule> rule = resolver.getRule(apk);
-    Preconditions.checkState(rule.isPresent());
-    Preconditions.checkState(rule.get() instanceof InstallableApk);
-
-    this.apk = apk;
+    Preconditions.checkState(apk instanceof BuildTargetSourcePath);
+    this.apk = (BuildTargetSourcePath) apk;
+    BuildRule rule = ruleFinder.getRuleOrThrow(this.apk);
+    Preconditions.checkState(rule instanceof InstallableApk);
+    this.installableApk = (InstallableApk) rule;
   }
 
   @Override
@@ -88,12 +92,12 @@ public class ApkGenrule extends Genrule implements InstallableApk {
   }
 
   public InstallableApk getInstallableApk() {
-    return (InstallableApk) getResolver().getRule(apk).get();
+    return installableApk;
   }
 
   @Override
   public Path getManifestPath() {
-    return getInstallableApk().getManifestPath();
+    return installableApk.getManifestPath();
   }
 
   @Override
@@ -103,7 +107,7 @@ public class ApkGenrule extends Genrule implements InstallableApk {
 
   @Override
   public Optional<ExopackageInfo> getExopackageInfo() {
-    return getInstallableApk().getExopackageInfo();
+    return installableApk.getExopackageInfo();
   }
 
   @Override
@@ -112,9 +116,8 @@ public class ApkGenrule extends Genrule implements InstallableApk {
       ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
     super.addEnvironmentVariables(context, environmentVariablesBuilder);
     // We have to use an absolute path, because genrules are run in a temp directory.
-    InstallableApk installApk = getInstallableApk();
-    String apkAbsolutePath = installApk.getProjectFilesystem()
-        .resolve(installApk.getApkPath())
+    String apkAbsolutePath = installableApk.getProjectFilesystem()
+        .resolve(installableApk.getApkPath())
         .toString();
     environmentVariablesBuilder.put("APK", apkAbsolutePath);
   }

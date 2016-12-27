@@ -25,6 +25,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.event.BuckEventBusFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.jvm.java.JavaLibraryBuilder;
+import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -36,9 +38,13 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeExportDependenciesRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -55,7 +61,7 @@ public class AndroidLibraryDescriptionTest {
   public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule transitiveExportedRule =
         resolver.addToIndex(new FakeBuildRule("//:transitive_exported_rule", pathResolver));
@@ -82,10 +88,64 @@ public class AndroidLibraryDescriptionTest {
   }
 
   @Test
+  public void rulesMatchingDepQueryBecomeFirstOrderDeps() throws Exception {
+    // Set up target graph: rule -> lib -> sublib -> bottom
+    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> bottomNode =
+        JavaLibraryBuilder.createBuilder(
+            BuildTargetFactory.newInstance("//:bottom"))
+            .build();
+    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> sublibNode =
+        JavaLibraryBuilder.createBuilder(
+            BuildTargetFactory.newInstance("//:sublib"))
+            .addDep(bottomNode.getBuildTarget())
+            .build();
+    TargetNode<JavaLibraryDescription.Arg, JavaLibraryDescription> libNode =
+        JavaLibraryBuilder.createBuilder(
+            BuildTargetFactory.newInstance("//:lib"))
+            .addDep(sublibNode.getBuildTarget())
+            .build();
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(
+        bottomNode,
+        libNode,
+        sublibNode);
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+
+    FakeBuildRule bottomRule = resolver.addToIndex(
+        new FakeBuildRule(bottomNode.getBuildTarget(), pathResolver));
+    FakeBuildRule sublibRule = resolver.addToIndex(
+        new FakeBuildRule(
+            sublibNode.getBuildTarget(),
+            pathResolver,
+            ImmutableSortedSet.of(bottomRule)));
+    FakeBuildRule libRule = resolver.addToIndex(
+        new FakeBuildRule(
+            libNode.getBuildTarget(),
+            pathResolver,
+            ImmutableSortedSet.of(sublibRule)));
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+
+    BuildRule javaLibrary = AndroidLibraryBuilder.createBuilder(target)
+        .addDep(libNode.getBuildTarget())
+        .setDepsQuery("filter('.*lib', deps($declared_deps))")
+        .build(resolver, targetGraph);
+
+    assertThat(
+        javaLibrary.getDeps(),
+        Matchers.hasItems(libRule, sublibRule));
+    // The bottom rule should be filtered since it does not match the regex
+    assertThat(
+        javaLibrary.getDeps(),
+            Matchers.not(Matchers.hasItem(bottomRule)));
+  }
+
+  @Test
   public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
 
     FakeBuildRule transitiveExportedRule =
         resolver.addToIndex(new FakeBuildRule("//:transitive_exported_rule", pathResolver));
@@ -117,6 +177,7 @@ public class AndroidLibraryDescriptionTest {
 
     // Set to non-null values.
     builder.setActionGraph(createMock(ActionGraph.class));
+    builder.setSourcePathResolver(createMock(SourcePathResolver.class));
     builder.setJavaPackageFinder(createMock(JavaPackageFinder.class));
     builder.setEventBus(BuckEventBusFactory.newInstance());
 

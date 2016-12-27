@@ -28,6 +28,7 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
@@ -61,7 +62,7 @@ public class CxxCompileStepIntegrationTest {
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Compiler compiler = platform.getCc().resolve(resolver);
     ImmutableList<String> compilerCommandPrefix = compiler.getCommandPrefix(pathResolver);
     Path output = filesystem.resolve(Paths.get("output.o"));
@@ -104,6 +105,7 @@ public class CxxCompileStepIntegrationTest {
                     compilerArguments.build(),
                     ImmutableMap.of(),
                     Optional.empty())),
+            /* pch */ Optional.empty(),
             HeaderPathNormalizer.empty(pathResolver),
             sanitizer,
             CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
@@ -151,7 +153,7 @@ public class CxxCompileStepIntegrationTest {
     // Build up the paths to various files the archive step will use.
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     Compiler compiler = platform.getCc().resolve(resolver);
     ImmutableList<String> compilerCommandPrefix = compiler.getCommandPrefix(pathResolver);
     Path output = filesystem.resolve(Paths.get("output.o"));
@@ -188,6 +190,7 @@ public class CxxCompileStepIntegrationTest {
                     compilerArguments.build(),
                     ImmutableMap.of(),
                     Optional.empty())),
+            /* pch */ Optional.empty(),
             HeaderPathNormalizer.empty(pathResolver),
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,

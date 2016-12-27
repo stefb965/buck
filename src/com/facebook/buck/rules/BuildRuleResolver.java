@@ -74,13 +74,13 @@ public class BuildRuleResolver {
             new CacheLoader<Pair<BuildTarget, Class<?>>, Optional<?>>() {
               @Override
               public Optional<?> load(Pair<BuildTarget, Class<?>> key) throws Exception {
-                TargetNode<?> node = BuildRuleResolver.this.targetGraph.get(key.getFirst());
+                TargetNode<?, ?> node = BuildRuleResolver.this.targetGraph.get(key.getFirst());
                 return load(node, key.getSecond());
               }
 
               @SuppressWarnings("unchecked")
               private <T, U> Optional<U> load(
-                  TargetNode<T> node,
+                  TargetNode<T, ?> node,
                   Class<U> metadataClass) throws NoSuchBuildTargetException {
                 T arg = node.getConstructorArg();
                 if (metadataClass.isAssignableFrom(arg.getClass())) {
@@ -132,13 +132,22 @@ public class BuildRuleResolver {
     if (rule != null) {
       return rule;
     }
-    TargetNode<?> node = targetGraph.get(target);
+    TargetNode<?, ?> node = targetGraph.get(target);
     rule = buildRuleGenerator.transform(targetGraph, this, node);
+    Preconditions.checkState(
+        // TODO(k21): This should hold for flavored build targets as well.
+        rule.getBuildTarget().getUnflavoredBuildTarget().equals(target.getUnflavoredBuildTarget()),
+        "Description returned rule for '%s' instead of '%s'.",
+        rule.getBuildTarget(),
+        target);
     BuildRule oldRule = buildRuleIndex.put(target, rule);
     Preconditions.checkState(
-        oldRule == null || oldRule.equals(rule),
-        "Race condition while requiring rule for target '%s':\n" +
-            "created rule '%s' does not match existing rule '%s'.",
+        // TODO(k21): Eventually we should be able to remove the oldRule == rule part.
+        // For now we need it to handle cases where a description adds a rule to the index before
+        // returning it.
+        oldRule == null || oldRule == rule,
+        "Multiple rules created for target '%s':\n" +
+            "new rule '%s' does not match existing rule '%s'.",
         target,
         rule,
         oldRule);

@@ -39,7 +39,7 @@ abstract class AbstractProjectPredicates {
    * project.
    */
   @Value.Parameter
-  public abstract Predicate<TargetNode<?>> getProjectRootsPredicate();
+  public abstract Predicate<TargetNode<?, ?>> getProjectRootsPredicate();
 
   /**
    * {@link AssociatedTargetNodePredicate} returning nodes associated
@@ -53,16 +53,19 @@ abstract class AbstractProjectPredicates {
    * the specified IDE.
    */
   public static ProjectPredicates forIde(ProjectCommand.Ide targetIde) {
-    Predicate<TargetNode<?>> projectRootsPredicate;
+    Predicate<TargetNode<?, ?>> projectRootsPredicate;
     AssociatedTargetNodePredicate associatedProjectPredicate;
 
     // Prepare the predicates to create the project graph based on the IDE.
     switch (targetIde) {
       case INTELLIJ:
-        projectRootsPredicate = input -> input.getType() == ProjectConfigDescription.TYPE;
+        projectRootsPredicate =
+            input ->
+                input.getDescription() instanceof ProjectConfigDescription;
         associatedProjectPredicate = (targetNode, targetGraph) -> {
           ProjectConfigDescription.Arg projectArg;
-          if (targetNode.getType() == ProjectConfigDescription.TYPE) {
+          if (targetNode.getDescription() instanceof
+              ProjectConfigDescription) {
             projectArg = (ProjectConfigDescription.Arg) targetNode.getConstructorArg();
           } else {
             return false;
@@ -78,7 +81,9 @@ abstract class AbstractProjectPredicates {
         };
         break;
       case XCODE:
-        projectRootsPredicate = input -> XcodeWorkspaceConfigDescription.TYPE == input.getType();
+        projectRootsPredicate =
+            input ->
+                input.getDescription() instanceof XcodeWorkspaceConfigDescription;
         associatedProjectPredicate = (targetNode, targetGraph) -> false;
         break;
       default:

@@ -39,6 +39,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -54,9 +55,6 @@ import com.google.common.collect.Iterables;
 
 import org.junit.Test;
 import org.junit.experimental.runners.Enclosed;
-import org.junit.experimental.theories.DataPoints;
-import org.junit.experimental.theories.Theories;
-import org.junit.experimental.theories.Theory;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
@@ -75,39 +73,6 @@ import java.util.Optional;
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 @RunWith(Enclosed.class)
 public class PrecompiledHeaderFeatureTest {
-
-  /**
-   * Tests that PCH is only used when compiling in in-process combined preprocessing/compiling.
-   *
-   * It makes no sense to enable PCH otherwise (and may not even be possible for clang).
-   */
-  @RunWith(Theories.class)
-  public static class OnlyUsePchInCombinedMode {
-
-    @DataPoints
-    public static final CxxPreprocessMode[] MODES = {
-        CxxPreprocessMode.COMBINED,
-        CxxPreprocessMode.SEPARATE,
-    };
-
-    @Theory
-    public void test(CxxPreprocessMode mode) {
-      CxxPreprocessAndCompile rule = preconfiguredSourceRuleFactoryBuilder()
-          .setPrefixHeader(new FakeSourcePath(("foo.pch")))
-          .build()
-          .createPreprocessAndCompileBuildRule(
-              "foo.c",
-              preconfiguredCxxSourceBuilder().build(),
-              mode);
-
-      boolean usesPch = commandLineContainsPchFlag(rule);
-      if (mode == CxxPreprocessMode.COMBINED) {
-        assertTrue("should only use PCH in combined mode", usesPch);
-      } else {
-        assertFalse("should only use PCH in combined mode", usesPch);
-      }
-    }
-  }
 
   /**
    * Tests that PCH is only used when a preprocessor is declared to use PCH.
@@ -137,15 +102,17 @@ public class PrecompiledHeaderFeatureTest {
 
     @Test
     public void test() {
-      CxxPreprocessAndCompile rule = preconfiguredSourceRuleFactoryBuilder()
+      BuildRuleResolver resolver =
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      CxxPreprocessAndCompile rule = preconfiguredSourceRuleFactoryBuilder(resolver)
           .setCxxPlatform(platform)
           .setPrefixHeader(new FakeSourcePath(("foo.pch")))
           .build()
           .createPreprocessAndCompileBuildRule(
               "foo.c",
-              preconfiguredCxxSourceBuilder().build(),
-              CxxPreprocessMode.COMBINED);
-      boolean usesPch = commandLineContainsPchFlag(rule);
+              preconfiguredCxxSourceBuilder().build());
+      boolean usesPch = commandLineContainsPchFlag(
+          new SourcePathResolver(new SourcePathRuleFinder(resolver)), rule);
       if (supportsPch) {
         assertTrue("should only use PCH if toolchain supports it", usesPch);
       } else {
@@ -159,7 +126,9 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldDeriveFromSanitizedFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Path from) {
-          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder()
+          BuildRuleResolver resolver = new BuildRuleResolver(
+              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder(resolver)
               .setCxxPlatform(
                   PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
                       new MungingDebugPathSanitizer(
@@ -173,8 +142,7 @@ public class PrecompiledHeaderFeatureTest {
               "foo.c",
               preconfiguredCxxSourceBuilder()
                   .addFlags("-I", from.toString())
-                  .build(),
-              CxxPreprocessMode.COMBINED);
+                  .build());
           return
               FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
         }
@@ -197,14 +165,15 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithCompilerFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Iterable<String> flags) {
-          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder()
+          BuildRuleResolver resolver = new BuildRuleResolver(
+              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder(resolver)
               .putAllCompilerFlags(CxxSource.Type.C_CPP_OUTPUT, flags)
               .setPrefixHeader(new FakeSourcePath(("foo.pch")))
               .build();
           BuildRule rule = factory.createPreprocessAndCompileBuildRule(
               "foo.c",
-              preconfiguredCxxSourceBuilder().build(),
-              CxxPreprocessMode.COMBINED);
+              preconfiguredCxxSourceBuilder().build());
           return
               FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
         }
@@ -225,7 +194,9 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithPreprocessorFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(String flags) {
-          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder()
+          BuildRuleResolver resolver = new BuildRuleResolver(
+              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          CxxSourceRuleFactory factory = preconfiguredSourceRuleFactoryBuilder(resolver)
               .setCxxPreprocessorInput(
                   ImmutableList.of(
                       CxxPreprocessorInput.builder()
@@ -235,8 +206,7 @@ public class PrecompiledHeaderFeatureTest {
               .build();
           BuildRule rule = factory.createPreprocessAndCompileBuildRule(
               "foo.c",
-              preconfiguredCxxSourceBuilder().build(),
-              CxxPreprocessMode.COMBINED);
+              preconfiguredCxxSourceBuilder().build());
           return
               FluentIterable.from(rule.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
         }
@@ -297,7 +267,8 @@ public class PrecompiledHeaderFeatureTest {
               .build();
       CxxPreprocessAndCompile ruleFoo =
           factoryFoo.createPreprocessAndCompileBuildRule(
-              "foo.cpp", preconfiguredCxxSourceBuilder().build(), CxxPreprocessMode.COMBINED);
+              "foo.cpp",
+              preconfiguredCxxSourceBuilder().build());
       CxxPrecompiledHeader pch1 =
           FluentIterable.from(ruleFoo.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
 
@@ -308,7 +279,8 @@ public class PrecompiledHeaderFeatureTest {
               .build();
       CxxPreprocessAndCompile ruleBar =
           factoryBar.createPreprocessAndCompileBuildRule(
-              "bar.cpp", preconfiguredCxxSourceBuilder().build(), CxxPreprocessMode.COMBINED);
+              "bar.cpp",
+              preconfiguredCxxSourceBuilder().build());
       CxxPrecompiledHeader pch2 =
           FluentIterable.from(ruleBar.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
 
@@ -366,7 +338,8 @@ public class PrecompiledHeaderFeatureTest {
               .build();
       CxxPreprocessAndCompile ruleFoo =
           factoryFoo.createPreprocessAndCompileBuildRule(
-              "foo.cpp", preconfiguredCxxSourceBuilder().build(), CxxPreprocessMode.COMBINED);
+              "foo.cpp",
+              preconfiguredCxxSourceBuilder().build());
       CxxPrecompiledHeader pch1 =
           FluentIterable.from(ruleFoo.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
 
@@ -383,7 +356,8 @@ public class PrecompiledHeaderFeatureTest {
               .build();
       CxxPreprocessAndCompile ruleBar =
           factoryBar.createPreprocessAndCompileBuildRule(
-              "bar.cpp", preconfiguredCxxSourceBuilder().build(), CxxPreprocessMode.COMBINED);
+              "bar.cpp",
+              preconfiguredCxxSourceBuilder().build());
       CxxPrecompiledHeader pch2 =
           FluentIterable.from(ruleBar.getDeps()).filter(CxxPrecompiledHeader.class).first().get();
 
@@ -403,9 +377,10 @@ public class PrecompiledHeaderFeatureTest {
    *
    * This serves as an indicator that the file is being compiled with PCH enabled.
    */
-  private static boolean commandLineContainsPchFlag(CxxPreprocessAndCompile rule) {
+  private static boolean commandLineContainsPchFlag(
+      SourcePathResolver resolver, CxxPreprocessAndCompile rule) {
     return Iterables.tryFind(
-        rule.makeMainStep(Paths.get("/tmp/unused_scratch_dir"), false).getCommand(),
+        rule.makeMainStep(resolver, Paths.get("/tmp/unused_scratch_dir"), false).getCommand(),
         "-include-pch"::equals).isPresent();
   }
 
@@ -416,21 +391,23 @@ public class PrecompiledHeaderFeatureTest {
    */
   private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
       String targetPath, BuildRuleResolver ruleResolver) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance(targetPath);
     BuildRuleParams params = new FakeBuildRuleParamsBuilder(target).build();
     return CxxSourceRuleFactory.builder()
         .setParams(params)
         .setResolver(ruleResolver)
-        .setPathResolver(new SourcePathResolver(ruleResolver))
+        .setPathResolver(pathResolver)
+        .setRuleFinder(ruleFinder)
         .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
         .setPicType(AbstractCxxSourceRuleFactory.PicType.PDC)
         .setCxxBuckConfig(CXX_CONFIG_PCH_ENABLED);
   }
 
-  private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder() {
-    return preconfiguredSourceRuleFactoryBuilder(
-        "//foo:bar",
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+  private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
+      BuildRuleResolver resolver) {
+    return preconfiguredSourceRuleFactoryBuilder("//foo:bar", resolver);
   }
 
   /**

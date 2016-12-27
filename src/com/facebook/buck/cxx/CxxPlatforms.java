@@ -26,12 +26,9 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
-import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
-import java.io.File;
-import java.nio.file.Paths;
 import java.util.Optional;
 
 public class CxxPlatforms {
@@ -51,8 +48,27 @@ public class CxxPlatforms {
   // Utility class, do not instantiate.
   private CxxPlatforms() { }
 
+  private static Optional<SharedLibraryInterfaceFactory> getSharedLibraryInterfaceFactory(
+      CxxBuckConfig config,
+      Platform platform) {
+    Optional<SharedLibraryInterfaceFactory> sharedLibraryInterfaceFactory = Optional.empty();
+    if (config.shouldUseSharedLibraryInterfaces()) {
+      switch (platform) {
+        case LINUX:
+          sharedLibraryInterfaceFactory =
+              Optional.of(
+                  ElfSharedLibraryInterfaceFactory.of(config.getToolProvider("objcopy").get()));
+          break;
+        // $CASES-OMITTED$
+        default:
+      }
+    }
+    return sharedLibraryInterfaceFactory;
+  }
+
   public static CxxPlatform build(
       Flavor flavor,
+      Platform platform,
       final CxxBuckConfig config,
       CompilerProvider as,
       PreprocessorProvider aspp,
@@ -74,9 +90,10 @@ public class CxxPlatforms {
       String sharedLibraryVersionedExtensionFormat,
       String staticLibraryExtension,
       String objectFileExtension,
-      Optional<DebugPathSanitizer> compilerDebugPathSanitizer,
-      Optional<DebugPathSanitizer> assemblerDebugPathSanitizer,
-      ImmutableMap<String, String> flagMacros) {
+      DebugPathSanitizer compilerDebugPathSanitizer,
+      DebugPathSanitizer assemblerDebugPathSanitizer,
+      ImmutableMap<String, String> flagMacros,
+      Optional<String> binaryExtension) {
     // TODO(bhamiltoncx, andrewjcg): Generalize this so we don't need all these setters.
     CxxPlatform.Builder builder = CxxPlatform.builder();
 
@@ -107,21 +124,10 @@ public class CxxPlatforms {
         .setSharedLibraryVersionedExtensionFormat(sharedLibraryVersionedExtensionFormat)
         .setStaticLibraryExtension(staticLibraryExtension)
         .setObjectFileExtension(objectFileExtension)
-        .setCompilerDebugPathSanitizer(
-            compilerDebugPathSanitizer.orElse(
-                new MungingDebugPathSanitizer(
-                    config.getDebugPathSanitizerLimit(),
-                    File.separatorChar,
-                    Paths.get("."),
-                    ImmutableBiMap.of())))
-        .setAssemblerDebugPathSanitizer(
-            assemblerDebugPathSanitizer.orElse(
-                new MungingDebugPathSanitizer(
-                    config.getDebugPathSanitizerLimit(),
-                    File.separatorChar,
-                    Paths.get("."),
-                    ImmutableBiMap.of())))
-        .setFlagMacros(flagMacros);
+        .setCompilerDebugPathSanitizer(compilerDebugPathSanitizer)
+        .setAssemblerDebugPathSanitizer(assemblerDebugPathSanitizer)
+        .setFlagMacros(flagMacros)
+        .setBinaryExtension(binaryExtension);
 
 
     builder.setSymbolNameTool(new LazyDelegatingSymbolNameTool(() -> {
@@ -132,6 +138,8 @@ public class CxxPlatforms {
         return nm;
       }
     }));
+
+    builder.setSharedLibraryInterfaceFactory(getSharedLibraryInterfaceFactory(config, platform));
 
     builder.addAllCflags(cflags);
     builder.addAllCxxflags(cflags);
@@ -149,10 +157,12 @@ public class CxxPlatforms {
    */
   public static CxxPlatform copyPlatformWithFlavorAndConfig(
       CxxPlatform defaultPlatform,
+      Platform platform,
       CxxBuckConfig config,
       Flavor flavor) {
     return CxxPlatforms.build(
         flavor,
+        platform,
         config,
         defaultPlatform.getAs(),
         defaultPlatform.getAspp(),
@@ -174,9 +184,10 @@ public class CxxPlatforms {
         defaultPlatform.getSharedLibraryVersionedExtensionFormat(),
         defaultPlatform.getStaticLibraryExtension(),
         defaultPlatform.getObjectFileExtension(),
-        Optional.of(defaultPlatform.getCompilerDebugPathSanitizer()),
-        Optional.of(defaultPlatform.getAssemblerDebugPathSanitizer()),
-        defaultPlatform.getFlagMacros());
+        defaultPlatform.getCompilerDebugPathSanitizer(),
+        defaultPlatform.getAssemblerDebugPathSanitizer(),
+        defaultPlatform.getFlagMacros(),
+        defaultPlatform.getBinaryExtension());
   }
 
   private static Function<Tool, Archiver> getArchiver(final Class<? extends Archiver> arClass,
@@ -291,6 +302,8 @@ public class CxxPlatforms {
       deps.addAll(cxxPlatform.getAsm().get().getParseTimeDeps());
     }
     deps.addAll(cxxPlatform.getLd().getParseTimeDeps());
+    cxxPlatform.getSharedLibraryInterfaceFactory()
+        .ifPresent(f -> deps.addAll(f.getParseTimeDeps()));
     return deps.build();
   }
 

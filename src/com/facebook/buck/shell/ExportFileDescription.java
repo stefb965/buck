@@ -21,12 +21,12 @@ import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitInputsInferringDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -38,13 +38,6 @@ import java.util.Optional;
 public class ExportFileDescription implements
     Description<ExportFileDescription.Arg>,
     ImplicitInputsInferringDescription<ExportFileDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("export_file");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -74,7 +67,8 @@ public class ExportFileDescription implements
     }
 
     SourcePath src;
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     if (args.src.isPresent()) {
       if (mode == ExportFileDescription.Mode.REFERENCE &&
           !pathResolver.getFilesystem(args.src.get()).equals(params.getProjectFilesystem())) {
@@ -91,7 +85,7 @@ public class ExportFileDescription implements
               target.getBasePath().resolve(target.getShortNameAndFlavorPostfix()));
     }
 
-    return new ExportFile(params, pathResolver, name, mode, src);
+    return new ExportFile(params, pathResolver, ruleFinder, name, mode, src);
   }
 
   /**

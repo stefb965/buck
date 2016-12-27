@@ -6,7 +6,7 @@ import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
-public interface AbstractBuildStamp {
+interface AbstractBuildStamp {
   String getRevision();
   long getVersionTimestamp();
   long getBuildTimestamp();

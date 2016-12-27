@@ -20,14 +20,10 @@ import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Ascii;
-import com.google.common.base.Function;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -39,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import javax.annotation.Nullable;
 
@@ -46,100 +43,6 @@ import javax.annotation.Nullable;
  * Represents a graph of IjModules and the dependencies between them.
  */
 public class IjModuleGraph {
-
-  enum DependencyType {
-    /**
-     * The current {@link IjModule} depends on the other element from test code only. This
-     * only happens if a particular module contains both test and production code and only code in
-     * the test folders needs to reference the other element.
-     */
-    TEST,
-    /**
-     * The current {@link IjModule} depends on the other element from production (non-test)
-     * code.
-     */
-    PROD,
-    /**
-     * This dependency means that the other element contains a compiled counterpart to this element.
-     * This is used when the current element uses BUCK features which cannot be expressed in
-     * IntelliJ.
-     */
-    COMPILED_SHADOW,
-    ;
-
-    public static DependencyType merge(DependencyType left, DependencyType right) {
-      if (left.equals(right)) {
-        return left;
-      }
-      Preconditions.checkArgument(
-          !left.equals(COMPILED_SHADOW) && !right.equals(COMPILED_SHADOW),
-          "The COMPILED_SHADOW type cannot be merged with other types.");
-      return DependencyType.PROD;
-    }
-
-    public static <T> void putWithMerge(Map<T, DependencyType> map, T key, DependencyType value) {
-      DependencyType oldValue = map.get(key);
-      if (oldValue != null) {
-        value = merge(oldValue, value);
-      }
-      map.put(key, value);
-    }
-  }
-
-  /**
-   * Indicates how to aggregate {@link TargetNode}s into {@link IjModule}s.
-   */
-  public static class AggregationMode {
-    private static final int MIN_SHALLOW_GRAPH_SIZE = 500;
-    private static final int SHALLOW_MAX_PATH_LENGTH = 3;
-
-    public static final AggregationMode AUTO = new AggregationMode();
-    public static final AggregationMode NONE = new AggregationMode(Integer.MAX_VALUE);
-    public static final AggregationMode SHALLOW = new AggregationMode(SHALLOW_MAX_PATH_LENGTH);
-
-
-    private Optional<Integer> minimumDepth;
-
-    AggregationMode() {
-      minimumDepth = Optional.empty();
-    }
-
-    AggregationMode(int minimumDepth) {
-      if (minimumDepth <= 0) {
-        throw new HumanReadableException(
-            "Aggregation level must be a positive integer (got " +
-            minimumDepth +
-            ")");
-      }
-
-      this.minimumDepth = Optional.of(minimumDepth);
-    }
-
-    public int getGraphMinimumDepth(int graphSize) {
-      return minimumDepth.orElse(
-          graphSize < MIN_SHALLOW_GRAPH_SIZE ? Integer.MAX_VALUE : SHALLOW_MAX_PATH_LENGTH);
-    }
-
-    public static AggregationMode fromString(String aggregationModeString) {
-      switch (Ascii.toLowerCase(aggregationModeString)) {
-        case "shallow":
-          return SHALLOW;
-        case "none":
-          return NONE;
-        case "auto":
-          return AUTO;
-        default:
-          try {
-            // See if a number was passed.
-            return new AggregationMode(Integer.parseInt(aggregationModeString));
-          } catch (NumberFormatException e) {
-            throw new HumanReadableException(
-                "Invalid aggregation mode value %s.",
-                aggregationModeString);
-          }
-      }
-    }
-  }
 
   /**
    * Create all the modules we are capable of representing in IntelliJ from the supplied graph.
@@ -157,30 +60,33 @@ public class IjModuleGraph {
 
     final BlockedPathNode blockedPathTree = createAggregationHaltPoints(projectConfig, targetGraph);
 
-    ImmutableListMultimap<Path, TargetNode<?>> baseTargetPathMultimap =
-        FluentIterable
-          .from(targetGraph.getNodes())
-          .filter(input -> IjModuleFactory.SUPPORTED_MODULE_TYPES.contains(input.getType()))
-          .index(
-              input -> {
-                Path basePath = input.getBuildTarget().getBasePath();
-
-                if (input.getConstructorArg() instanceof AndroidResourceDescription.Arg) {
-                  return basePath;
-                }
-
-                return simplifyPath(basePath, minimumPathDepth, blockedPathTree);
-              });
+    ImmutableListMultimap<Path, TargetNode<?, ?>> baseTargetPathMultimap = targetGraph.getNodes()
+        .stream()
+        .filter(input -> IjModuleFactory.SUPPORTED_MODULE_DESCRIPTION_CLASSES.contains(
+            input.getDescription().getClass()))
+        .collect(
+            MoreCollectors.toImmutableListMultimap(
+                targetNode -> {
+                  Path path;
+                  Path basePath = targetNode.getBuildTarget().getBasePath();
+                  if (targetNode.getConstructorArg() instanceof AndroidResourceDescription.Arg) {
+                    path = basePath;
+                  } else {
+                    path = simplifyPath(basePath, minimumPathDepth, blockedPathTree);
+                  }
+                  return path;
+                },
+                targetNode -> targetNode));
 
     ImmutableMap.Builder<BuildTarget, IjModule> moduleMapBuilder = new ImmutableMap.Builder<>();
 
     for (Path baseTargetPath : baseTargetPathMultimap.keySet()) {
-      ImmutableSet<TargetNode<?>> targets =
+      ImmutableSet<TargetNode<?, ?>> targets =
           ImmutableSet.copyOf(baseTargetPathMultimap.get(baseTargetPath));
 
       IjModule module = moduleFactory.createModule(baseTargetPath, targets);
 
-      for (TargetNode<?> target : targets) {
+      for (TargetNode<?, ?> target : targets) {
         moduleMapBuilder.put(target.getBuildTarget(), module);
       }
     }
@@ -219,7 +125,7 @@ public class IjModuleGraph {
       TargetGraph targetGraph) {
     BlockedPathNode blockRoot = new BlockedPathNode();
 
-    for (TargetNode<?> node : targetGraph.getNodes()) {
+    for (TargetNode<?, ?> node : targetGraph.getNodes()) {
       if (node.getConstructorArg() instanceof AndroidResourceDescription.Arg ||
           isNonDefaultJava(node, projectConfig.getJavaBuckConfig().getDefaultJavacOptions())) {
         Path blockedPath = node.getBuildTarget().getBasePath();
@@ -230,9 +136,8 @@ public class IjModuleGraph {
     return blockRoot;
   }
 
-  private static boolean isNonDefaultJava(TargetNode<?> node, JavacOptions defaultJavacOptions) {
-    BuildRuleType type = node.getType();
-    if (!type.equals(JavaLibraryDescription.TYPE)) {
+  private static boolean isNonDefaultJava(TargetNode<?, ?> node, JavacOptions defaultJavacOptions) {
+    if (!(node.getDescription() instanceof JavaLibraryDescription)) {
       return false;
     }
 
@@ -281,7 +186,7 @@ public class IjModuleGraph {
         ImmutableSet<IjProjectElement> depElements;
 
         if (depType.equals(DependencyType.COMPILED_SHADOW)) {
-          TargetNode<?> targetNode = targetGraph.get(depBuildTarget);
+          TargetNode<?, ?> targetNode = targetGraph.get(depBuildTarget);
           Optional<IjLibrary> library = libraryFactory.getLibrary(targetNode);
           if (library.isPresent()) {
             depElements = ImmutableSet.of(library.get());
@@ -289,31 +194,28 @@ public class IjModuleGraph {
             depElements = ImmutableSet.of();
           }
         } else {
-          depElements = FluentIterable.from(
-              exportedDepsClosureResolver.getExportedDepsClosure(depBuildTarget))
-              .append(depBuildTarget)
+          depElements = Stream
+              .concat(
+                  exportedDepsClosureResolver.getExportedDepsClosure(depBuildTarget).stream(),
+                  Stream.of(depBuildTarget))
               .filter(
                   input -> {
                     // The exported deps closure can contain references back to targets contained
                     // in the module, so filter those out.
-                    TargetNode<?> targetNode = targetGraph.get(input);
+                    TargetNode<?, ?> targetNode = targetGraph.get(input);
                     return !module.getTargets().contains(targetNode);
                   })
-              .transform(
-                  new Function<BuildTarget, IjProjectElement>() {
-                    @Nullable
-                    @Override
-                    public IjProjectElement apply(BuildTarget depTarget) {
-                      IjModule depModule = rulesToModules.get(depTarget);
-                      if (depModule != null) {
-                        return depModule;
-                      }
-                      TargetNode<?> targetNode = targetGraph.get(depTarget);
-                      return libraryFactory.getLibrary(targetNode).orElse(null);
+              .map(
+                  depTarget-> {
+                    IjModule depModule = rulesToModules.get(depTarget);
+                    if (depModule != null) {
+                      return depModule;
                     }
+                    TargetNode<?, ?> targetNode = targetGraph.get(depTarget);
+                    return libraryFactory.getLibrary(targetNode).orElse(null);
                   })
               .filter(Objects::nonNull)
-              .toSet();
+              .collect(MoreCollectors.toImmutableSet());
         }
 
         for (IjProjectElement depElement : depElements) {
@@ -331,17 +233,16 @@ public class IjModuleGraph {
         moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
       }
 
-      referencedLibraries.addAll(
-          FluentIterable.from(moduleDeps.keySet())
-              .filter(IjLibrary.class)
-              .toSet());
+      moduleDeps.keySet()
+          .stream()
+          .filter(dep -> dep instanceof IjLibrary)
+          .map(library -> (IjLibrary) library)
+          .forEach(referencedLibraries::add);
 
       depsBuilder.put(module, ImmutableMap.copyOf(moduleDeps));
     }
 
-    for (IjLibrary library : referencedLibraries) {
-      depsBuilder.put(library, ImmutableMap.of());
-    }
+    referencedLibraries.forEach(library -> depsBuilder.put(library, ImmutableMap.of()));
 
     return new IjModuleGraph(depsBuilder.build());
   }
@@ -351,7 +252,12 @@ public class IjModuleGraph {
   }
 
   public ImmutableSet<IjModule> getModuleNodes() {
-    return FluentIterable.from(deps.keySet()).filter(IjModule.class).toSet();
+    return deps
+        .keySet()
+        .stream()
+        .filter(dep -> dep instanceof IjModule)
+        .map(module -> (IjModule) module)
+        .collect(MoreCollectors.toImmutableSet());
   }
 
   public ImmutableMap<IjProjectElement, DependencyType> getDepsFor(IjProjectElement source) {
@@ -360,16 +266,24 @@ public class IjModuleGraph {
 
   public ImmutableMap<IjModule, DependencyType> getDependentModulesFor(IjModule source) {
     final ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
-    return FluentIterable.from(deps.keySet()).filter(IjModule.class)
-        .toMap(
-            input -> Preconditions.checkNotNull(deps.get(input)));
+    return deps
+        .keySet()
+        .stream()
+        .filter(dep -> dep instanceof IjModule)
+        .map(module -> (IjModule) module)
+        .collect(MoreCollectors.toImmutableMap(k -> k,
+            input -> Preconditions.checkNotNull(deps.get(input))));
   }
 
   public ImmutableMap<IjLibrary, DependencyType> getDependentLibrariesFor(IjModule source) {
     final ImmutableMap<IjProjectElement, DependencyType> deps = getDepsFor(source);
-    return FluentIterable.from(deps.keySet()).filter(IjLibrary.class)
-        .toMap(
-            input -> Preconditions.checkNotNull(deps.get(input)));
+    return deps
+        .keySet()
+        .stream()
+        .filter(dep -> dep instanceof IjLibrary)
+        .map(library -> (IjLibrary) library)
+        .collect(MoreCollectors.toImmutableMap(k -> k,
+            input -> Preconditions.checkNotNull(deps.get(input))));
   }
 
   private static void checkNamesAreUnique(

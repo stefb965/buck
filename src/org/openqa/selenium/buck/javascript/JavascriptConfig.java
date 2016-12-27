@@ -22,6 +22,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
@@ -36,9 +37,12 @@ public class JavascriptConfig {
     this.delegate = delegate;
   }
 
-  public Tool getClosureCompiler(Optional<SourcePath> compilerPath, SourcePathResolver resolver) {
+  public Tool getClosureCompiler(
+      Optional<SourcePath> compilerPath,
+      SourcePathResolver resolver,
+      SourcePathRuleFinder finder) {
     SourcePath path = getClosureCompilerSourcePath(compilerPath);
-    Optional<BuildRule> rule = resolver.getRule(path);
+    Optional<BuildRule> rule = finder.getRule(path);
     if (rule.isPresent()) {
       Preconditions.checkState(
           rule.get() instanceof BinaryBuildRule,

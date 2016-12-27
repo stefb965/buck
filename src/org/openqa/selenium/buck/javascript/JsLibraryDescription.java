@@ -20,23 +20,16 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 
 public class JsLibraryDescription implements Description<JsLibraryDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("js_library");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -51,7 +44,7 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
       A args) {
     return new JsLibrary(
         params,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         params.getDeclaredDeps().get(),
         args.srcs);
   }

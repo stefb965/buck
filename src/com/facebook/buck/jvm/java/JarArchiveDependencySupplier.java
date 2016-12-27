@@ -19,8 +19,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.exportedfiles.Nullable;
-import com.google.common.base.Supplier;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -28,12 +26,14 @@ import java.lang.ref.SoftReference;
 import java.nio.file.Paths;
 import java.util.jar.JarFile;
 
+import javax.annotation.Nullable;
+
 public class JarArchiveDependencySupplier extends ZipArchiveDependencySupplier {
   @Nullable
   private SoftReference<ImmutableSortedSet<SourcePath>> archiveMembers;
 
   public JarArchiveDependencySupplier(
-      Supplier<ImmutableSortedSet<SourcePath>> jarFiles,
+      ImmutableSortedSet<SourcePath> jarFiles,
       ProjectFilesystem filesystem) {
     super(jarFiles, filesystem);
   }

@@ -47,6 +47,7 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
@@ -181,7 +182,7 @@ public class DistributedBuildStateTest {
         DistBuildState.load(dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
     TargetGraph reconstructedGraph = distributedBuildState.createTargetGraph(targetGraphCodec);
     assertThat(reconstructedGraph.getNodes(), Matchers.hasSize(1));
-    TargetNode<JavaLibraryDescription.Arg> reconstructedJavaLibrary =
+    TargetNode<JavaLibraryDescription.Arg, ?> reconstructedJavaLibrary =
         FluentIterable.from(reconstructedGraph.getNodes()).get(0)
         .castArg(JavaLibraryDescription.Arg.class).get();
     ProjectFilesystem reconstructedCellFilesystem =
@@ -270,11 +271,13 @@ public class DistributedBuildStateTest {
     ActionGraph actionGraph = new ActionGraph(ImmutableList.of());
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");
     return new DistBuildFileHashes(
         actionGraph,
         sourcePathResolver,
+        ruleFinder,
         DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem),
         Functions.constant(0),
         MoreExecutors.newDirectExecutorService(),
@@ -288,9 +291,9 @@ public class DistributedBuildStateTest {
     ObjectMapper objectMapper = ObjectMappers.newDefaultInstance(); // NOPMD confused by lambda
     BuckEventBus eventBus = BuckEventBusFactory.newInstance();
 
-    Function<? super TargetNode<?>, ? extends Map<String, Object>> nodeToRawNode;
+    Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
-     nodeToRawNode = (Function<TargetNode<?>, Map<String, Object>>) input -> {
+     nodeToRawNode = (Function<TargetNode<?, ?>, Map<String, Object>>) input -> {
        try {
          return parser.get().getRawTargetNode(
              eventBus,
@@ -308,7 +311,7 @@ public class DistributedBuildStateTest {
 
     DistBuildTypeCoercerFactory typeCoercerFactory =
         new DistBuildTypeCoercerFactory(objectMapper);
-    ParserTargetNodeFactory<TargetNode<?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory));

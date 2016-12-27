@@ -27,7 +27,6 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
@@ -35,7 +34,9 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -50,9 +51,8 @@ import java.util.regex.Pattern;
 
 public class JavaBinaryDescription implements
     Description<JavaBinaryDescription.Args>,
-    ImplicitDepsInferringDescription<JavaBinaryDescription.Args> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("java_binary");
+    ImplicitDepsInferringDescription<JavaBinaryDescription.Args>,
+    VersionRoot<JavaBinaryDescription.Args> {
 
   private static final Flavor FAT_JAR_INNER_JAR_FLAVOR = ImmutableFlavor.of("inner-jar");
 
@@ -70,11 +70,6 @@ public class JavaBinaryDescription implements
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Args createUnpopulatedConstructorArg() {
     return new Args();
   }
@@ -86,7 +81,8 @@ public class JavaBinaryDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     ImmutableMap<String, SourcePath> nativeLibraries =
         JavaLibraryRules.getNativeLibraries(params.getDeps(), cxxPlatform);
     BuildRuleParams binaryParams = params;
@@ -126,12 +122,13 @@ public class JavaBinaryDescription implements
       rule = new JarFattener(
           params.appendExtraDeps(
               Suppliers.<Iterable<BuildRule>>ofInstance(
-                  pathResolver.filterBuildRuleInputs(
+                  ruleFinder.filterBuildRuleInputs(
                       ImmutableList.<SourcePath>builder()
                           .add(innerJar)
                           .addAll(nativeLibraries.values())
                           .build()))),
           pathResolver,
+          ruleFinder,
           javacOptions,
           innerJar,
           nativeLibraries,
@@ -147,6 +144,11 @@ public class JavaBinaryDescription implements
       CellPathResolver cellRoots,
       Args constructorArg) {
     return CxxPlatforms.getParseTimeDeps(cxxPlatform);
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   @SuppressFieldNotInitialized

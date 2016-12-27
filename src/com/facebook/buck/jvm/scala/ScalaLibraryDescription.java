@@ -20,12 +20,13 @@ import static com.facebook.buck.jvm.common.ResourceValidator.validateResources;
 
 import com.facebook.buck.jvm.java.CalculateAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
@@ -34,6 +35,7 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.OptionalCompat;
@@ -49,18 +51,11 @@ import java.util.Optional;
 public class ScalaLibraryDescription implements Description<ScalaLibraryDescription.Arg>,
     ImplicitDepsInferringDescription<ScalaLibraryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("scala_library");
-
   private final ScalaBuckConfig scalaBuckConfig;
 
   public ScalaLibraryDescription(
       ScalaBuckConfig scalaBuckConfig) {
     this.scalaBuckConfig = scalaBuckConfig;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -73,8 +68,20 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
       TargetGraph targetGraph,
       final BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
-      A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+      A args) throws NoSuchBuildTargetException {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+
+    if (rawParams.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      BuildTarget libraryTarget = rawParams.getBuildTarget().withoutFlavors(CalculateAbi.FLAVOR);
+      resolver.requireRule(libraryTarget);
+      return CalculateAbi.of(
+          rawParams.getBuildTarget(),
+          pathResolver,
+          ruleFinder,
+          rawParams,
+          new BuildTargetSourcePath(libraryTarget));
+    }
 
     Tool scalac = scalaBuckConfig.getScalac(resolver);
 
@@ -84,55 +91,47 @@ public class ScalaLibraryDescription implements Description<ScalaLibraryDescript
             .addAll(rawParams.getDeclaredDeps().get())
             .add(scalaLibrary)
             .build(),
-        rawParams.getExtraDeps()
-    );
+        rawParams.getExtraDeps());
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
+    BuildRuleParams javaLibraryParams =
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
                     Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                resolver.getAllRules(args.providedDeps))),
-                        scalac.getDeps(pathResolver))),
-                pathResolver,
-                args.srcs,
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources),
-                /* generatedSourceFolder */ Optional.empty(),
-                /* proguardConfig */ Optional.empty(),
-                /* postprocessClassesCommands */ ImmutableList.of(),
-                params.getDeclaredDeps().get(),
-                resolver.getAllRules(args.providedDeps),
-                new BuildTargetSourcePath(abiJarTarget),
-                /* trackClassUsage */ false,
-                /* additionalClasspathEntries */ ImmutableSet.of(),
-                new ScalacToJarStepFactory(
-                    scalac,
-                    ScalacToJarStepFactory.collectScalacArguments(
-                        scalaBuckConfig,
-                        resolver,
-                        args.extraArguments)),
-                args.resourcesRoot,
-                args.manifestFile,
-                args.mavenCoords,
-                args.tests,
-                /* classesToRemoveFromJar */ ImmutableSet.of()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
+                        params.getDeclaredDeps().get(),
+                        resolver.getAllRules(args.providedDeps))),
+                scalac.getDeps(ruleFinder)));
+    return new DefaultJavaLibrary(
+        javaLibraryParams,
+        pathResolver,
+        ruleFinder,
+        args.srcs,
+        validateResources(
             pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    return defaultJavaLibrary;
+            params.getProjectFilesystem(),
+            args.resources),
+        /* generatedSourceFolder */ Optional.empty(),
+        /* proguardConfig */ Optional.empty(),
+        /* postprocessClassesCommands */ ImmutableList.of(),
+        params.getDeclaredDeps().get(),
+        resolver.getAllRules(args.providedDeps),
+        abiJarTarget,
+        JavaLibraryRules.getAbiInputs(resolver, javaLibraryParams.getDeps()),
+        /* trackClassUsage */ false,
+        /* additionalClasspathEntries */ ImmutableSet.of(),
+        new ScalacToJarStepFactory(
+            scalac,
+            ScalacToJarStepFactory.collectScalacArguments(
+                scalaBuckConfig,
+                resolver,
+                args.extraArguments)),
+        args.resourcesRoot,
+        args.manifestFile,
+        args.mavenCoords,
+        args.tests,
+        /* classesToRemoveFromJar */ ImmutableSet.of());
   }
 
   @Override

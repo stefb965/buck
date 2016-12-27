@@ -29,6 +29,7 @@ import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
@@ -38,6 +39,8 @@ import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.MavenCoordinatesMacroExpander;
+import com.facebook.buck.rules.macros.QueryOutputsMacroExpander;
+import com.facebook.buck.rules.macros.QueryTargetsMacroExpander;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -56,13 +59,15 @@ import java.util.stream.Stream;
 public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescription.Arg>
     implements Description<T>, ImplicitDepsInferringDescription<T> {
 
-  public static final MacroHandler MACRO_HANDLER = new MacroHandler(
+  public static final MacroHandler PARSE_TIME_MACRO_HANDLER = new MacroHandler(
       ImmutableMap.<String, MacroExpander>builder()
           .put("classpath", new ClasspathMacroExpander())
           .put("exe", new ExecutableMacroExpander())
           .put("worker", new WorkerMacroExpander())
           .put("location", new LocationMacroExpander())
           .put("maven_coords", new MavenCoordinatesMacroExpander())
+          .put("query_targets", new QueryTargetsMacroExpander(Optional.empty()))
+          .put("query_outputs", new QueryOutputsMacroExpander(Optional.empty()))
           .build());
 
   protected <A extends T> BuildRule createBuildRule(
@@ -74,7 +79,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
       Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
     return new Genrule(
         params,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         args.srcs,
         cmd,
         bash,
@@ -83,15 +88,25 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
   }
 
   protected MacroHandler getMacroHandlerForParseTimeDeps() {
-    return MACRO_HANDLER;
+    return PARSE_TIME_MACRO_HANDLER;
   }
 
   @SuppressWarnings("unused")
   protected <A extends AbstractGenruleDescription.Arg> MacroHandler getMacroHandler(
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      TargetGraph targetGraph,
       A args) {
-    return MACRO_HANDLER;
+    return new MacroHandler(
+        ImmutableMap.<String, MacroExpander>builder()
+            .put("classpath", new ClasspathMacroExpander())
+            .put("exe", new ExecutableMacroExpander())
+            .put("worker", new WorkerMacroExpander())
+            .put("location", new LocationMacroExpander())
+            .put("maven_coords", new MavenCoordinatesMacroExpander())
+            .put("query_targets", new QueryTargetsMacroExpander(Optional.of(targetGraph)))
+            .put("query_outputs", new QueryOutputsMacroExpander(Optional.of(targetGraph)))
+            .build());
   }
 
   @Override
@@ -101,10 +116,10 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
       final BuildRuleResolver resolver,
       final A args)
       throws NoSuchBuildTargetException {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     java.util.function.Function<String, com.facebook.buck.rules.args.Arg> macroArgFunction =
         MacroArg.toMacroArgFunction(
-            getMacroHandler(params, resolver, args),
+            getMacroHandler(params, resolver, targetGraph, args),
             params.getBuildTarget(),
             params.getCellRoots(),
             resolver)::apply;
@@ -116,10 +131,10 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
         params.copyWithExtraDeps(
             Suppliers.ofInstance(
                 Stream.concat(
-                    pathResolver.filterBuildRuleInputs(args.srcs).stream(),
+                    ruleFinder.filterBuildRuleInputs(args.srcs).stream(),
                     Stream.of(cmd, bash, cmdExe)
                         .flatMap(Optionals::toStream)
-                        .flatMap(input -> input.getDeps(pathResolver).stream())
+                        .flatMap(input -> input.getDeps(ruleFinder).stream())
                 ).collect(
                     MoreCollectors.toImmutableSortedSet(Comparator.<BuildRule>naturalOrder())))),
         resolver,

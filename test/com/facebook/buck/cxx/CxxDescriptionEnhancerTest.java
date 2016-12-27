@@ -20,7 +20,6 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
-import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -46,15 +46,16 @@ import org.junit.Test;
 
 import java.nio.file.Paths;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 public class CxxDescriptionEnhancerTest {
 
   @Test
   public void libraryTestIncludesPrivateHeadersOfLibraryUnderTest() throws Exception {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
@@ -89,7 +90,9 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 FluentIterable.from(testParams.getDeps())
-                    .filter(CxxPreprocessorDep.class::isInstance)));
+                    .filter(CxxPreprocessorDep.class::isInstance)),
+            ImmutableList.of(),
+            Optional.empty());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(combinedInput).getIncludes()) {
@@ -105,9 +108,9 @@ public class CxxDescriptionEnhancerTest {
 
   @Test
   public void libraryTestIncludesPublicHeadersOfDependenciesOfLibraryUnderTest() throws Exception {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
     BuildTarget otherlibTarget = BuildTargetFactory.newInstance("//:otherlib");
@@ -160,7 +163,9 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 FluentIterable.from(testParams.getDeps())
-                    .filter(CxxPreprocessorDep.class::isInstance)));
+                    .filter(CxxPreprocessorDep.class::isInstance)),
+            ImmutableList.of(),
+            Optional.empty());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(combinedInput).getIncludes()) {
@@ -181,9 +186,9 @@ public class CxxDescriptionEnhancerTest {
 
   @Test
   public void nonTestLibraryDepDoesNotIncludePrivateHeadersOfLibrary() throws Exception {
-    SourcePathResolver pathResolver = new SourcePathResolver(
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
 
@@ -218,7 +223,9 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 FluentIterable.from(otherLibDepParams.getDeps())
-                    .filter(CxxPreprocessorDep.class::isInstance)));
+                    .filter(CxxPreprocessorDep.class::isInstance)),
+            ImmutableList.of(),
+            Optional.empty());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(otherInput).getIncludes()) {
@@ -231,19 +238,6 @@ public class CxxDescriptionEnhancerTest {
             hasItem(new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink"))),
             not(hasItem(
                 new BuildTargetSourcePath(BuildTargetFactory.newInstance("//:privatesymlink"))))));
-  }
-
-  @Test
-  public void buildTargetsWithDifferentFlavorsProduceDifferentDefaultSonames() {
-    BuildTarget target1 = BuildTargetFactory.newInstance("//:rule#one");
-    BuildTarget target2 = BuildTargetFactory.newInstance("//:rule#two");
-    assertNotEquals(
-        CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
-            target1,
-            CxxPlatformUtils.DEFAULT_PLATFORM),
-        CxxDescriptionEnhancer.getDefaultSharedLibrarySoname(
-            target2,
-            CxxPlatformUtils.DEFAULT_PLATFORM));
   }
 
   @Test

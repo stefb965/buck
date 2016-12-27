@@ -32,6 +32,7 @@ import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.util.OptionalCompat;
@@ -63,6 +64,7 @@ public class RobolectricTest extends JavaTest {
   private static final BuildableProperties PROPERTIES = new BuildableProperties(
       ANDROID, LIBRARY, TEST);
 
+  private final SourcePathRuleFinder ruleFinder;
   private final Optional<DummyRDotJava> optionalDummyRDotJava;
   private final Optional<SourcePath> robolectricManifest;
   private final Optional<String> robolectricRuntimeDependency;
@@ -78,8 +80,7 @@ public class RobolectricTest extends JavaTest {
       "buck.robolectric_manifest";
 
   private final Function<HasAndroidResourceDeps, Path> resourceDirectoryFunction =
-      input -> Optional.ofNullable(input.getRes()).map(getResolver()::deprecatedGetPath)
-          .get();
+      input -> getResolver().getRelativePath(input.getRes());
   private final Function<DummyRDotJava, ImmutableSet<BuildRule>> resourceRulesFunction =
       input -> {
         ImmutableSet.Builder<BuildRule> resourceDeps = ImmutableSet.builder();
@@ -89,7 +90,7 @@ public class RobolectricTest extends JavaTest {
           if (resSourcePath == null) {
             continue;
           }
-          Optionals.addIfPresent(getResolver().getRule(resSourcePath), resourceDeps);
+          Optionals.addIfPresent(getRuleFinder().getRule(resSourcePath), resourceDeps);
         }
         return resourceDeps.build();
       };
@@ -97,6 +98,7 @@ public class RobolectricTest extends JavaTest {
   protected RobolectricTest(
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       JavaLibrary compiledTestsLibrary,
       ImmutableSet<Path> additionalClasspathEntries,
       Set<Label> labels,
@@ -134,6 +136,7 @@ public class RobolectricTest extends JavaTest {
         forkMode,
         stdOutLogLevel,
         stdErrLogLevel);
+    this.ruleFinder = ruleFinder;
     this.optionalDummyRDotJava = optionalDummyRDotJava;
     this.robolectricRuntimeDependency = robolectricRuntimeDependency;
     this.robolectricManifest = robolectricManifest;
@@ -214,4 +217,7 @@ public class RobolectricTest extends JavaTest {
         .build();
   }
 
+  public SourcePathRuleFinder getRuleFinder() {
+    return ruleFinder;
+  }
 }

@@ -27,6 +27,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -54,6 +55,8 @@ public class HaskellPackageRule extends AbstractBuildRule {
   @AddToRuleKey
   private final Tool ghcPkg;
 
+  private final HaskellVersion haskellVersion;
+
   @AddToRuleKey
   private final HaskellPackageInfo packageInfo;
 
@@ -73,6 +76,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       Tool ghcPkg,
+      HaskellVersion haskellVersion,
       HaskellPackageInfo packageInfo,
       ImmutableSortedMap<String, HaskellPackage> depPackages,
       ImmutableSortedSet<String> modules,
@@ -80,6 +84,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
       ImmutableSortedSet<SourcePath> interfaces) {
     super(buildRuleParams, resolver);
     this.ghcPkg = ghcPkg;
+    this.haskellVersion = haskellVersion;
     this.packageInfo = packageInfo;
     this.depPackages = depPackages;
     this.modules = modules;
@@ -91,7 +96,9 @@ public class HaskellPackageRule extends AbstractBuildRule {
       BuildTarget target,
       BuildRuleParams baseParams,
       final SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       final Tool ghcPkg,
+      HaskellVersion haskellVersion,
       HaskellPackageInfo packageInfo,
       final ImmutableSortedMap<String, HaskellPackage> depPackages,
       ImmutableSortedSet<String> modules,
@@ -102,17 +109,18 @@ public class HaskellPackageRule extends AbstractBuildRule {
             target,
             Suppliers.memoize(
                 () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(ghcPkg.getDeps(resolver))
+                    .addAll(ghcPkg.getDeps(ruleFinder))
                     .addAll(
                         depPackages.values().stream()
-                            .flatMap(pkg -> pkg.getDeps(resolver))
+                            .flatMap(pkg -> pkg.getDeps(ruleFinder))
                             .iterator())
                     .addAll(
-                        resolver.filterBuildRuleInputs(Iterables.concat(libraries, interfaces)))
+                        ruleFinder.filterBuildRuleInputs(Iterables.concat(libraries, interfaces)))
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         resolver,
         ghcPkg,
+        haskellVersion,
         packageInfo,
         depPackages,
         modules,
@@ -130,6 +138,10 @@ public class HaskellPackageRule extends AbstractBuildRule {
     entries.put("name", packageInfo.getName());
     entries.put("version", packageInfo.getVersion());
     entries.put("id", packageInfo.getIdentifier());
+
+    if (haskellVersion.getMajorVersion() >= 8) {
+      entries.put("key", packageInfo.getIdentifier());
+    }
 
     entries.put("exposed", "True");
     entries.put("exposed-modules", Joiner.on(' ').join(modules));
@@ -252,7 +264,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
     public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
       return ImmutableMap.<String, String>builder()
           .putAll(super.getEnvironmentVariables(context))
-          .putAll(ghcPkg.getEnvironment(getResolver()))
+          .putAll(ghcPkg.getEnvironment())
           .putAll(env)
           .build();
     }

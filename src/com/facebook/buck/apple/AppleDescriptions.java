@@ -20,11 +20,14 @@ import static com.facebook.buck.swift.SwiftUtil.Constants.SWIFT_EXTENSION;
 
 import com.facebook.buck.cxx.BuildRuleWithBinary;
 import com.facebook.buck.cxx.CxxBinaryDescription;
+import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxConstructorArg;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
+import com.facebook.buck.cxx.FrameworkDependencies;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.ProvidesLinkedBinaryDeps;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.io.MorePaths;
@@ -42,12 +45,14 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.OptionalCompat;
@@ -70,8 +75,7 @@ import com.google.common.collect.Sets;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -190,11 +194,13 @@ public class AppleDescriptions {
       Path headerPathPrefix,
       Function<SourcePath, Path> sourcePathResolver,
       Set<SourcePath> headerPaths) {
-    Map<String, SourcePath> includeToFile = new HashMap<>(headerPaths.size());
+    Set<String> includeToFile = new HashSet<String>(headerPaths.size());
+    ImmutableSortedMap.Builder<String, SourcePath> builder = ImmutableSortedMap.naturalOrder();
     for (SourcePath headerPath : headerPaths) {
       Path fileName = sourcePathResolver.apply(headerPath).getFileName();
       String key = headerPathPrefix.resolve(fileName).toString();
-      if (includeToFile.containsKey(key)) {
+      if (includeToFile.contains(key)) {
+        ImmutableSortedMap<String, SourcePath> result = builder.build();
         throw new HumanReadableException(
             "The same include path maps to multiple files:\n" +
                 "  Include path: %s\n" +
@@ -203,11 +209,12 @@ public class AppleDescriptions {
                 "    %s",
             key,
             headerPath,
-            includeToFile.get(key));
+            result.get(key));
       }
-      includeToFile.put(key, headerPath);
+      includeToFile.add(key);
+      builder.put(key, headerPath);
     }
-    return ImmutableSortedMap.copyOf(includeToFile);
+    return builder.build();
   }
 
   public static void populateCxxConstructorArg(
@@ -223,12 +230,12 @@ public class AppleDescriptions {
         ImmutableSortedMap.<String, SourcePath>naturalOrder()
             .putAll(
                 convertAppleHeadersToPublicCxxHeaders(
-                    resolver::deprecatedGetPath,
+                    resolver::getRelativePath,
                     headerPathPrefix,
                     arg))
             .putAll(
                 convertAppleHeadersToPrivateCxxHeaders(
-                    resolver::deprecatedGetPath,
+                    resolver::getRelativePath,
                     headerPathPrefix,
                     arg))
             .build();
@@ -291,7 +298,7 @@ public class AppleDescriptions {
     output.headers =
         SourceList.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
-                resolver::deprecatedGetPath,
+                resolver::getRelativePath,
                 headerPathPrefix,
                 arg));
     output.exportedDeps = arg.exportedDeps;
@@ -299,7 +306,7 @@ public class AppleDescriptions {
     output.exportedHeaders =
         SourceList.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
-                resolver::deprecatedGetPath,
+                resolver::getRelativePath,
                 headerPathPrefix,
                 arg));
     output.exportedPlatformHeaders = arg.exportedPlatformHeaders;
@@ -314,6 +321,8 @@ public class AppleDescriptions {
     output.supportedPlatformsRegex = arg.supportedPlatformsRegex;
     output.canBeAsset = arg.canBeAsset;
     output.exportedDeps = arg.exportedDeps;
+    output.xcodePublicHeadersSymlinks = arg.xcodePublicHeadersSymlinks;
+    output.xcodePrivateHeadersSymlinks = arg.xcodePrivateHeadersSymlinks;
   }
 
   public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
@@ -322,10 +331,13 @@ public class AppleDescriptions {
       SourcePathResolver sourcePathResolver,
       ApplePlatform applePlatform,
       Tool actool) {
-    TargetNode<?> targetNode = targetGraph.get(params.getBuildTarget());
+    TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
     ImmutableSet<AppleAssetCatalogDescription.Arg> assetCatalogArgs =
-        AppleBuildRules.collectRecursiveAssetCatalogs(targetGraph, ImmutableList.of(targetNode));
+        AppleBuildRules.collectRecursiveAssetCatalogs(
+            targetGraph,
+            Optional.empty(),
+            ImmutableList.of(targetNode));
 
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
@@ -333,7 +345,13 @@ public class AppleDescriptions {
     Optional<String> appIcon = Optional.empty();
     Optional<String> launchImage = Optional.empty();
 
+    AppleAssetCatalogDescription.Optimization optimization = null;
+
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
+      if (optimization == null) {
+        optimization = arg.optimization;
+      }
+
       assetCatalogDirsBuilder.addAll(arg.dirs);
       if (arg.appIcon.isPresent()) {
         if (appIcon.isPresent()) {
@@ -351,6 +369,11 @@ public class AppleDescriptions {
         }
 
         launchImage = arg.launchImage;
+      }
+
+      if (arg.optimization != optimization) {
+        throw new HumanReadableException("At most one asset catalog optimisation style can be " +
+            "specified in the dependencies %s", params.getBuildTarget());
       }
     }
 
@@ -375,6 +398,7 @@ public class AppleDescriptions {
             assetCatalogDirs,
             appIcon,
             launchImage,
+            optimization,
             MERGED_ASSET_CATALOG_NAME));
   }
 
@@ -384,13 +408,17 @@ public class AppleDescriptions {
       SourcePathResolver sourcePathResolver,
       String moduleName,
       AppleCxxPlatform appleCxxPlatform) {
-    TargetNode<?> targetNode = targetGraph.get(params.getBuildTarget());
+    TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
 
-    ImmutableSet<CoreDataModelDescription.Arg> coreDataModelArgs =
-        AppleBuildRules.collectTransitiveCoreDataModels(targetGraph, ImmutableList.of(targetNode));
+    ImmutableSet<AppleWrapperResourceArg> coreDataModelArgs =
+        AppleBuildRules.collectTransitiveBuildRules(
+            targetGraph,
+            Optional.empty(),
+            AppleBuildRules.CORE_DATA_MODEL_DESCRIPTION_CLASSES,
+            ImmutableList.of(targetNode));
 
     BuildRuleParams coreDataModelParams = params.copyWithChanges(
-        params.getBuildTarget().withAppendedFlavors(AppleAssetCatalog.FLAVOR),
+        params.getBuildTarget().withAppendedFlavors(CoreDataModel.FLAVOR),
         Suppliers.ofInstance(ImmutableSortedSet.of()),
         Suppliers.ofInstance(ImmutableSortedSet.of()));
 
@@ -403,6 +431,38 @@ public class AppleDescriptions {
           appleCxxPlatform,
           moduleName,
           coreDataModelArgs.stream()
+              .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
+              .collect(MoreCollectors.toImmutableSet())));
+    }
+  }
+
+  public static Optional<SceneKitAssets> createBuildRulesForSceneKitAssetsDependencies(
+      TargetGraph targetGraph,
+      BuildRuleParams params,
+      SourcePathResolver sourcePathResolver,
+      AppleCxxPlatform appleCxxPlatform) {
+    TargetNode<?, ?> targetNode = targetGraph.get(params.getBuildTarget());
+
+    ImmutableSet<AppleWrapperResourceArg> sceneKitAssetsArgs =
+        AppleBuildRules.collectTransitiveBuildRules(
+            targetGraph,
+            Optional.empty(),
+            AppleBuildRules.SCENEKIT_ASSETS_DESCRIPTION_CLASSES,
+            ImmutableList.of(targetNode));
+
+    BuildRuleParams sceneKitAssetsParams = params.copyWithChanges(
+        params.getBuildTarget().withAppendedFlavors(SceneKitAssets.FLAVOR),
+        Suppliers.ofInstance(ImmutableSortedSet.of()),
+        Suppliers.ofInstance(ImmutableSortedSet.of()));
+
+    if (sceneKitAssetsArgs.isEmpty()) {
+      return Optional.empty();
+    } else {
+      return Optional.of(new SceneKitAssets(
+          sceneKitAssetsParams,
+          sourcePathResolver,
+          appleCxxPlatform,
+          sceneKitAssetsArgs.stream()
               .map(input -> new PathSourcePath(params.getProjectFilesystem(), input.path))
               .collect(MoreCollectors.toImmutableSet())));
     }
@@ -442,7 +502,7 @@ public class AppleDescriptions {
                     unstrippedBinaryRule,
                     appleDsym)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         buildRuleForDebugFormat);
     return rule;
   }
@@ -460,6 +520,7 @@ public class AppleDescriptions {
           .withoutFlavors(CxxStrip.RULE_FLAVOR)
           .withoutFlavors(StripStyle.FLAVOR_DOMAIN.getFlavors())
           .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
+          .withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor())
           .withAppendedFlavors(AppleDsym.RULE_FLAVOR);
       Optional<BuildRule> dsymRule = resolver.getRuleOptional(dsymBuildTarget);
       if (!dsymRule.isPresent()) {
@@ -502,7 +563,7 @@ public class AppleDescriptions {
                     .addAll(unstrippedBinaryBuildRule.getStaticLibraryDeps())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         appleCxxPlatform.getDsymutil(),
         appleCxxPlatform.getLldb(),
         new BuildTargetSourcePath(unstrippedBinaryBuildRule.getBuildTarget()),
@@ -527,7 +588,9 @@ public class AppleDescriptions {
       ImmutableMap<String, String> infoPlistSubstitutions,
       ImmutableSortedSet<BuildTarget> deps,
       ImmutableSortedSet<BuildTarget> tests,
-      AppleDebugFormat debugFormat)
+      AppleDebugFormat debugFormat,
+      boolean dryRunCodeSigning,
+      boolean cacheable)
       throws NoSuchBuildTargetException {
     AppleCxxPlatform appleCxxPlatform = ApplePlatforms.getAppleCxxPlatformForBuildTarget(
         cxxPlatformFlavorDomain,
@@ -548,6 +611,7 @@ public class AppleDescriptions {
 
     AppleBundleResources collectedResources = AppleResources.collectResourceDirsAndFiles(
         targetGraph,
+        Optional.empty(),
         targetGraph.get(params.getBuildTarget()));
 
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
@@ -568,7 +632,8 @@ public class AppleDescriptions {
     }
     ImmutableSet<SourcePath> frameworks = frameworksBuilder.build();
 
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     BuildRuleParams paramsWithoutBundleSpecificFlavors = stripBundleSpecificFlavors(params);
 
     Optional<AppleAssetCatalog> assetCatalog =
@@ -587,6 +652,13 @@ public class AppleDescriptions {
             AppleBundle.getBinaryName(params.getBuildTarget(), productName),
             appleCxxPlatform);
 
+    Optional<SceneKitAssets> sceneKitAssets =
+        createBuildRulesForSceneKitAssetsDependencies(
+            targetGraph,
+            paramsWithoutBundleSpecificFlavors,
+            sourcePathResolver,
+            appleCxxPlatform);
+
     // TODO(bhamiltoncx): Sort through the changes needed to make project generation work with
     // binary being optional.
     BuildRule flavoredBinaryRule = getFlavoredBinaryRule(
@@ -600,14 +672,20 @@ public class AppleDescriptions {
     if (!AppleDebuggableBinary.isBuildRuleDebuggable(flavoredBinaryRule)) {
       debugFormat = AppleDebugFormat.NONE;
     }
-
     BuildTarget unstrippedTarget = flavoredBinaryRule.getBuildTarget()
         .withoutFlavors(
             CxxStrip.RULE_FLAVOR,
             AppleDebuggableBinary.RULE_FLAVOR,
             AppleBinaryDescription.APP_FLAVOR)
         .withoutFlavors(StripStyle.FLAVOR_DOMAIN.getFlavors())
-        .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors());
+        .withoutFlavors(AppleDebugFormat.FLAVOR_DOMAIN.getFlavors())
+        .withoutFlavors(AppleDebuggableBinary.RULE_FLAVOR)
+        .withoutFlavors(ImmutableSet.of(AppleBinaryDescription.APP_FLAVOR));
+    Optional<LinkerMapMode> linkerMapMode =
+        LinkerMapMode.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
+    if (linkerMapMode.isPresent()) {
+      unstrippedTarget = unstrippedTarget.withAppendedFlavors(linkerMapMode.get().getFlavor());
+    }
     BuildRule unstrippedBinaryRule = resolver.requireRule(unstrippedTarget);
 
     BuildRule targetDebuggableBinaryRule;
@@ -646,6 +724,7 @@ public class AppleDescriptions {
             .add(targetDebuggableBinaryRule)
             .addAll(OptionalCompat.asSet(assetCatalog))
             .addAll(OptionalCompat.asSet(coreDataModel))
+            .addAll(OptionalCompat.asSet(sceneKitAssets))
             .addAll(
                 BuildRules.toBuildRulesFor(
                     params.getBuildTarget(),
@@ -678,9 +757,12 @@ public class AppleDescriptions {
         appleCxxPlatform,
         assetCatalog,
         coreDataModel,
+        sceneKitAssets,
         tests,
         codeSignIdentityStore,
-        provisioningProfileStore);
+        provisioningProfileStore,
+        dryRunCodeSigning,
+        cacheable);
   }
 
   private static BuildRule getBinaryFromBuildRuleWithBinary(BuildRule rule) {
@@ -697,6 +779,12 @@ public class AppleDescriptions {
       ImmutableSet<Flavor> flavors,
       BuildRuleResolver resolver,
       BuildTarget binary) throws NoSuchBuildTargetException {
+
+    // Don't flavor genrule deps.
+    if (targetGraph.get(binary).getDescription() instanceof AbstractGenruleDescription) {
+      return resolver.requireRule(binary);
+    }
+
     // Cxx targets must have one Platform Flavor set otherwise nothing gets compiled.
     if (flavors.contains(AppleDescriptions.FRAMEWORK_FLAVOR)) {
       flavors = ImmutableSet.<Flavor>builder()
@@ -730,7 +818,7 @@ public class AppleDescriptions {
     }
     BuildTarget buildTarget = buildTargetBuilder.build();
 
-    final TargetNode<?> binaryTargetNode = targetGraph.get(buildTarget);
+    final TargetNode<?, ?> binaryTargetNode = targetGraph.get(buildTarget);
 
     if (binaryTargetNode.getDescription() instanceof AppleTestDescription) {
       return resolver.getRule(binary);
@@ -829,5 +917,15 @@ public class AppleDescriptions {
   private static BuildRuleParams stripBundleSpecificFlavors(BuildRuleParams params) {
     return params.copyWithBuildTarget(
         params.getBuildTarget().withoutFlavors(BUNDLE_SPECIFIC_FLAVORS));
+  }
+
+  public static boolean flavorsDoNotAllowLinkerMapMode(BuildRuleParams params) {
+    ImmutableSet<Flavor> flavors = params.getBuildTarget().getFlavors();
+    return flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE) ||
+        flavors.contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE) ||
+        flavors.contains(CxxDescriptionEnhancer.STATIC_FLAVOR) ||
+        flavors.contains(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR) ||
+        flavors.contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR) ||
+        flavors.contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR);
   }
 }

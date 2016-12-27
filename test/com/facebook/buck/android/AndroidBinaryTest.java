@@ -38,6 +38,7 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.Step;
@@ -69,7 +70,8 @@ public class AndroidBinaryTest {
   public void testAndroidBinaryNoDx() throws Exception {
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
 
     // Two android_library deps, neither with an assets directory.
     BuildRule libraryOne = createAndroidLibraryRule(
@@ -109,12 +111,12 @@ public class AndroidBinaryTest {
     FakeBuildableContext buildableContext = new FakeBuildableContext();
 
     androidBinary.addProguardCommands(
-        ImmutableSet.copyOf(
-            pathResolver.deprecatedAllPaths(packageableCollection.getClasspathEntriesToDex())),
-        ImmutableSet.copyOf(
-            pathResolver.deprecatedAllPaths(packageableCollection.getProguardConfigs())),
+        pathResolver.getAllRelativePaths(packageableCollection.getClasspathEntriesToDex()),
+        pathResolver.getAllAbsolutePaths(packageableCollection.getProguardConfigs()),
+        false,
         commands,
-        buildableContext);
+        buildableContext,
+        pathResolver);
 
     BuildTarget aaptPackageTarget = binaryBuildTarget
         .withFlavors(AndroidBinaryGraphEnhancer.AAPT_PACKAGE_FLAVOR);
@@ -173,6 +175,7 @@ public class AndroidBinaryTest {
                         libraryTwoRule.getBuildTarget().getShortNameAndFlavorPostfix() + ".jar"))),
         proguardOutputDir,
         buildableContext,
+        false,
         expectedSteps);
 
     assertEquals(expectedSteps.build(), commands.build());
@@ -193,9 +196,11 @@ public class AndroidBinaryTest {
     if (!Strings.isNullOrEmpty(resDirectory) || !Strings.isNullOrEmpty(assetDirectory)) {
       BuildTarget resourceOnebuildTarget =
           BuildTargetFactory.newInstance(buildTarget + "_resources");
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
       BuildRule androidResourceRule = ruleResolver.addToIndex(
           AndroidResourceRuleBuilder.newBuilder()
-              .setResolver(new SourcePathResolver(ruleResolver))
+              .setResolver(new SourcePathResolver(ruleFinder))
+              .setRuleFinder(ruleFinder)
               .setAssets(new FakeSourcePath(assetDirectory))
               .setRes(resDirectory == null ? null : new FakeSourcePath(resDirectory))
               .setBuildTarget(resourceOnebuildTarget)
@@ -320,7 +325,8 @@ public class AndroidBinaryTest {
         primaryDexPath,
         Optional.empty(),
         Optional.empty(),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of());
+        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)));
 
     assertEquals("Expected 2 new assets paths (one for metadata.txt and the other for the " +
         "secondary zips)", 2, secondaryDexDirectories.build().size());
@@ -365,7 +371,8 @@ public class AndroidBinaryTest {
         primaryDexPath,
         Optional.of(reorderTool),
         Optional.of(reorderData),
-        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of());
+        /*  additionalDexStoreToJarPathMap */ ImmutableMultimap.of(),
+        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)));
 
     assertEquals(
         "Expected 2 new assets paths (one for metadata.txt and the other for the " +
@@ -437,7 +444,7 @@ public class AndroidBinaryTest {
   public void transitivePrebuiltJarsAreFirstOrderDeps() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule keystoreRule = addKeystoreRule(resolver);
 
     BuildRule prebuiltJarGen =

@@ -25,17 +25,18 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -56,9 +57,9 @@ public class CxxTestDescription implements
     Description<CxxTestDescription.Arg>,
     Flavored,
     ImplicitDepsInferringDescription<CxxTestDescription.Arg>,
-    MetadataProvidingDescription<CxxTestDescription.Arg> {
+    MetadataProvidingDescription<CxxTestDescription.Arg>,
+    VersionRoot<CxxTestDescription.Arg> {
 
-  private static final BuildRuleType TYPE = BuildRuleType.of("cxx_test");
   private static final CxxTestType DEFAULT_TEST_TYPE = CxxTestType.GTEST;
 
   private final CxxBuckConfig cxxBuckConfig;
@@ -78,11 +79,6 @@ public class CxxTestDescription implements
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
@@ -96,12 +92,20 @@ public class CxxTestDescription implements
       final A args) throws NoSuchBuildTargetException {
     Optional<StripStyle> flavoredStripStyle =
         StripStyle.FLAVOR_DOMAIN.getValue(inputParams.getBuildTarget());
-    final BuildRuleParams params =
-        CxxStrip.removeStripStyleFlavorInParams(inputParams, flavoredStripStyle);
+    Optional<LinkerMapMode> flavoredLinkerMapMode =
+        LinkerMapMode.FLAVOR_DOMAIN.getValue(inputParams.getBuildTarget());
+    inputParams = CxxStrip.removeStripStyleFlavorInParams(
+        inputParams,
+        flavoredStripStyle);
+    inputParams = LinkerMapMode.removeLinkerMapModeFlavorInParams(
+        inputParams,
+        flavoredLinkerMapMode);
+    final BuildRuleParams params = inputParams;
 
     Optional<CxxPlatform> platform = cxxPlatforms.getValue(params.getBuildTarget());
     CxxPlatform cxxPlatform = platform.orElse(defaultCxxPlatform);
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     if (params.getBuildTarget().getFlavors()
           .contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
@@ -109,6 +113,7 @@ public class CxxTestDescription implements
           params,
           resolver,
           pathResolver,
+          ruleFinder,
           cxxBuckConfig,
           cxxPlatform,
           args);
@@ -124,6 +129,15 @@ public class CxxTestDescription implements
       );
     }
 
+    if (params.getBuildTarget().getFlavors()
+        .contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+      return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
+          resolver,
+          args,
+          cxxPlatform,
+          params);
+    }
+
     // Generate the link rule that builds the test binary.
     final CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
@@ -132,13 +146,19 @@ public class CxxTestDescription implements
             cxxBuckConfig,
             cxxPlatform,
             args,
-            flavoredStripStyle);
+            flavoredStripStyle,
+            flavoredLinkerMapMode);
 
     // Construct the actual build params we'll use, notably with an added dependency on the
     // CxxLink rule above which builds the test binary.
     BuildRuleParams testParams =
-        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(pathResolver));
-    testParams = CxxStrip.restoreStripStyleFlavorInParams(testParams, flavoredStripStyle);
+        params.appendExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder));
+    testParams = CxxStrip.restoreStripStyleFlavorInParams(
+        testParams,
+        flavoredStripStyle);
+    testParams = LinkerMapMode.restoreLinkerMapModeFlavorInParams(
+        testParams,
+        flavoredLinkerMapMode);
 
     // Supplier which expands macros in the passed in test environment.
     Supplier<ImmutableMap<String, String>> testEnv =
@@ -202,6 +222,7 @@ public class CxxTestDescription implements
         test = new CxxGtestTest(
             testParams,
             pathResolver,
+            ruleFinder,
             cxxLinkAndCompileRules.getBinaryRule(),
             cxxLinkAndCompileRules.executable,
             testEnv,
@@ -221,6 +242,7 @@ public class CxxTestDescription implements
         test = new CxxBoostTest(
             testParams,
             pathResolver,
+            ruleFinder,
             cxxLinkAndCompileRules.getBinaryRule(),
             cxxLinkAndCompileRules.executable,
             testEnv,
@@ -323,6 +345,10 @@ public class CxxTestDescription implements
       return true;
     }
 
+    if (LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(flavors)) {
+      return true;
+    }
+
     for (Flavor flavor : cxxPlatforms.getFlavors()) {
       if (flavors.equals(ImmutableSet.of(flavor))) {
         return true;
@@ -345,6 +371,11 @@ public class CxxTestDescription implements
     return CxxDescriptionEnhancer
         .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
             metadataClass::cast);
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   @SuppressFieldNotInitialized

@@ -26,7 +26,7 @@ import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.MapDifference;
@@ -143,11 +143,11 @@ public class ActionGraphCache {
     final int numberOfNodes = targetGraph.getNodes().size();
     final AtomicInteger processedNodes = new AtomicInteger(0);
 
-    AbstractBottomUpTraversal<TargetNode<?>, RuntimeException> bottomUpTraversal =
-        new AbstractBottomUpTraversal<TargetNode<?>, RuntimeException>(targetGraph) {
+    AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException> bottomUpTraversal =
+        new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(targetGraph) {
 
           @Override
-          public void visit(TargetNode<?> node) {
+          public void visit(TargetNode<?, ?> node) {
             try {
               resolver.requireRule(node.getBuildTarget());
             } catch (NoSuchBuildTargetException e) {
@@ -170,9 +170,10 @@ public class ActionGraphCache {
       Iterable<BuildRule> buildRules,
       BuildRuleResolver buildRuleResolver,
       int keySeed) {
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
-    ContentAgnosticRuleKeyBuilderFactory factory =
-        new ContentAgnosticRuleKeyBuilderFactory(keySeed, pathResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    ContentAgnosticRuleKeyFactory factory =
+        new ContentAgnosticRuleKeyFactory(keySeed, pathResolver, ruleFinder);
 
     HashMap<BuildRule, RuleKey> ruleKeysMap = new HashMap<>();
     for (BuildRule rule : buildRules) {
@@ -244,13 +245,14 @@ public class ActionGraphCache {
     if (event.kind() != StandardWatchEventKinds.ENTRY_MODIFY) {
       LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);
       invalidateCache();
-
       if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
         broadcastEventListener.broadcast(WatchmanStatusEvent.overflow((String) event.context()));
       } else if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
-        broadcastEventListener.broadcast(WatchmanStatusEvent.fileCreation());
+        broadcastEventListener.broadcast(
+            WatchmanStatusEvent.fileCreation(event.context().toString()));
       } else if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
-        broadcastEventListener.broadcast(WatchmanStatusEvent.fileDeletion());
+        broadcastEventListener.broadcast(
+            WatchmanStatusEvent.fileDeletion(event.context().toString()));
       }
     }
   }

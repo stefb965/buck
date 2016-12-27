@@ -137,19 +137,17 @@ public enum RuleGatherer {
 
     @Override
     public Iterable<BuildRule> visit(BuildRule rule) throws RuntimeException {
-      if (rootTarget.equals(rule.getBuildTarget().getUnflavoredBuildTarget())) {
-        if (rule instanceof JavaLibrary) {
-          rootLibrary = (JavaLibrary) rule;
-        }
+      if (rootTarget.equals(rule.getBuildTarget().getUnflavoredBuildTarget()) &&
+          rule instanceof JavaLibrary) {
+        rootLibrary = (JavaLibrary) rule;
       }
 
       if (HasMavenCoordinates.MAVEN_COORDS_PRESENT_PREDICATE.apply(rule) &&
-          !rule.equals(rootLibrary)) {
-        if (rule instanceof JavaLibrary) {
-          // We hit an edge. Stop
-          firstOrder.add((JavaLibrary) rule);
-          return ImmutableSortedSet.of();
-        }
+          !rule.equals(rootLibrary) &&
+          rule instanceof JavaLibrary) {
+        // We hit an edge. Stop
+        firstOrder.add((JavaLibrary) rule);
+        return ImmutableSortedSet.of();
       }
 
       Iterable<BuildRule> deps = rule.getDeps();

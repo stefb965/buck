@@ -35,7 +35,7 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.jvm.java.intellij.IjModuleGraph;
+import com.facebook.buck.jvm.java.intellij.AggregationMode;
 import com.facebook.buck.jvm.java.intellij.IjProject;
 import com.facebook.buck.jvm.java.intellij.IntellijConfig;
 import com.facebook.buck.jvm.java.intellij.Project;
@@ -55,9 +55,10 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.AssociatedTargetNodePredicate;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
+import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ProjectConfig;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -80,6 +81,7 @@ import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -212,7 +214,7 @@ public class ProjectCommand extends BuildCommand {
           "specifying 3 would aggrgate modules to a/b/c from lower levels where possible). " +
           "Defaults to 'auto' if not specified in .buckconfig.")
   @Nullable
-  private IjModuleGraph.AggregationMode intellijAggregationMode = null;
+  private AggregationMode intellijAggregationMode = null;
 
   @Option(
       name = "--run-ij-cleaner",
@@ -385,15 +387,15 @@ public class ProjectCommand extends BuildCommand {
     return buildCommand;
   }
 
-  public IjModuleGraph.AggregationMode getIntellijAggregationMode(BuckConfig buckConfig) {
+  public AggregationMode getIntellijAggregationMode(BuckConfig buckConfig) {
     if (intellijAggregationMode != null) {
       return intellijAggregationMode;
     }
-    Optional<IjModuleGraph.AggregationMode> aggregationMode =
+    Optional<AggregationMode> aggregationMode =
         buckConfig.getValue(
             "project",
-            "intellij_aggregation_mode").map(IjModuleGraph.AggregationMode::fromString);
-    return aggregationMode.orElse(IjModuleGraph.AggregationMode.AUTO);
+            "intellij_aggregation_mode").map(AggregationMode::fromString);
+    return aggregationMode.orElse(AggregationMode.AUTO);
   }
 
   @Override
@@ -492,7 +494,7 @@ public class ProjectCommand extends BuildCommand {
       }
 
       if (getDryRun()) {
-        for (TargetNode<?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
+        for (TargetNode<?, ?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
           params.getConsole().getStdOut().println(targetNode.toString());
         }
 
@@ -541,14 +543,15 @@ public class ProjectCommand extends BuildCommand {
     if (projectIde == null && !passedInTargetsSet.isEmpty() && projectGraph.isPresent()) {
       Ide guessedIde = null;
       for (BuildTarget buildTarget : passedInTargetsSet) {
-        Optional<TargetNode<?>> node = projectGraph.get().getOptional(buildTarget);
+        Optional<TargetNode<?, ?>> node = projectGraph.get().getOptional(buildTarget);
         if (!node.isPresent()) {
           throw new HumanReadableException("Project graph %s doesn't contain build target " +
               "%s", projectGraph.get(), buildTarget);
         }
-        BuildRuleType nodeType = node.get().getType();
-        boolean canGenerateXcodeProject = canGenerateImplicitWorkspaceForType(nodeType);
-        canGenerateXcodeProject |= nodeType.equals(XcodeWorkspaceConfigDescription.TYPE);
+        Description<?> description = node.get().getDescription();
+        boolean canGenerateXcodeProject = canGenerateImplicitWorkspaceForDescription(description);
+        canGenerateXcodeProject |=
+            description instanceof XcodeWorkspaceConfigDescription;
         if (guessedIde == null && canGenerateXcodeProject) {
           guessedIde = Ide.XCODE;
         } else if (guessedIde == Ide.XCODE && !canGenerateXcodeProject ||
@@ -629,7 +632,8 @@ public class ProjectCommand extends BuildCommand {
 
     BuckConfig buckConfig = params.getBuckConfig();
     BuildRuleResolver ruleResolver = result.getResolver();
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     JavacOptions javacOptions = buckConfig.getView(JavaBuckConfig.class).getDefaultJavacOptions();
 
@@ -639,6 +643,7 @@ public class ProjectCommand extends BuildCommand {
         JavaFileParser.createJavaFileParser(javacOptions),
         ruleResolver,
         sourcePathResolver,
+        ruleFinder,
         params.getCell().getFilesystem(),
         getIntellijAggregationMode(buckConfig),
         buckConfig);
@@ -706,7 +711,7 @@ public class ProjectCommand extends BuildCommand {
     return FluentIterable
         .from(buildTargets)
         .filter(input -> {
-          TargetNode<?> targetNode = targetGraph.get(input);
+          TargetNode<?, ?> targetNode = targetGraph.get(input);
           return targetNode != null && isTargetWithAnnotations(targetNode);
         })
         .toSet();
@@ -801,7 +806,7 @@ public class ProjectCommand extends BuildCommand {
 
     try (ExecutionContext executionContext = createExecutionContext(params)) {
       Project project = new Project(
-          new SourcePathResolver(result.getResolver()),
+          new SourcePathResolver(new SourcePathRuleFinder(result.getResolver())),
           FluentIterable
               .from(result.getActionGraph().getNodes())
               .filter(ProjectConfig.class)
@@ -980,14 +985,13 @@ public class ProjectCommand extends BuildCommand {
     LOG.debug("Generating workspace for config targets %s", targets);
     ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder = ImmutableSet.builder();
     for (final BuildTarget inputTarget : targets) {
-      TargetNode<?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
+      TargetNode<?, ?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
       XcodeWorkspaceConfigDescription.Arg workspaceArgs;
-      BuildRuleType type = inputNode.getType();
-      if (type == XcodeWorkspaceConfigDescription.TYPE) {
-        TargetNode<XcodeWorkspaceConfigDescription.Arg> castedWorkspaceNode =
+      if (inputNode.getDescription() instanceof XcodeWorkspaceConfigDescription) {
+        TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castedWorkspaceNode =
             castToXcodeWorkspaceTargetNode(inputNode);
         workspaceArgs = castedWorkspaceNode.getConstructorArg();
-      } else if (canGenerateImplicitWorkspaceForType(type)) {
+      } else if (canGenerateImplicitWorkspaceForDescription(inputNode.getDescription())) {
         workspaceArgs = createImplicitWorkspaceArgs(inputNode);
       } else {
         throw new HumanReadableException(
@@ -1019,10 +1023,10 @@ public class ProjectCommand extends BuildCommand {
           params.getCell().getKnownBuildRuleTypes().getCxxPlatforms(),
           defaultCxxPlatform,
           params.getBuckConfig().getView(ParserConfig.class).getBuildFileName(),
-          input -> new SourcePathResolver(
+          input -> new SourcePathResolver(new SourcePathRuleFinder(
               ActionGraphCache.getFreshActionGraph(params.getBuckEventBus(),
                   targetGraphAndTargets.getTargetGraph().getSubgraph(
-                  ImmutableSet.of(input))).getResolver()),
+                  ImmutableSet.of(input))).getResolver())),
           params.getBuckEventBus(),
           halideBuckConfig,
           cxxBuckConfig,
@@ -1074,6 +1078,7 @@ public class ProjectCommand extends BuildCommand {
               SpeculativeParsing.of(false),
               parserConfig.getDefaultFlavorsMode()).stream()
           .flatMap(Collection::stream)
+          .map(target -> target.withoutCell())
           .collect(MoreCollectors.toImmutableSet());
     } catch (BuildTargetException | BuildFileParseException | HumanReadableException e) {
       params.getBuckEventBus().post(ConsoleEvent.severe(
@@ -1082,6 +1087,28 @@ public class ProjectCommand extends BuildCommand {
     }
     LOG.debug("Selected targets: %s", passedInTargetsSet.toString());
 
+    // Retrieve mapping: cell name -> path.
+    ImmutableMap<String, Path> cellPaths = params.getCell().getCellPathResolver().getCellPaths();
+    ImmutableMap<Path, String> cellNames = ImmutableBiMap.copyOf(cellPaths).inverse();
+
+    // Create a set of unflavored targets that have cell names.
+    ImmutableSet.Builder<UnflavoredBuildTarget> builder = ImmutableSet.builder();
+    for (BuildTarget target : passedInTargetsSet) {
+      String cell = cellNames.get(target.getCellPath());
+      if (cell == null) {
+        builder.add(target.getUnflavoredBuildTarget());
+      } else {
+        UnflavoredBuildTarget targetWithCell = UnflavoredBuildTarget.of(
+            target.getCellPath(),
+            Optional.of(cell),
+            target.getBaseName(),
+            target.getShortName());
+        builder.add(targetWithCell);
+      }
+    }
+    ImmutableSet<UnflavoredBuildTarget> passedInUnflavoredTargetsSet = builder.build();
+    LOG.debug("Selected unflavored targets: %s", passedInUnflavoredTargetsSet.toString());
+
     // Build the set of unflavored targets in the target graph.
     ImmutableSet<UnflavoredBuildTarget> validUnflavoredTargets =
       targetGraphAndTargets.getTargetGraph().getNodes().stream()
@@ -1089,9 +1116,8 @@ public class ProjectCommand extends BuildCommand {
         .collect(MoreCollectors.toImmutableSet());
 
     // Match the targets resolved using the patterns with the valid of valid targets.
-    ImmutableSet<UnflavoredBuildTarget> result = passedInTargetsSet.stream()
-      .filter(target -> validUnflavoredTargets.contains(target.getUnflavoredBuildTarget()))
-      .map(target -> target.getUnflavoredBuildTarget())
+    ImmutableSet<UnflavoredBuildTarget> result = passedInUnflavoredTargetsSet.stream()
+      .filter(target -> validUnflavoredTargets.contains(target))
       .collect(MoreCollectors.toImmutableSet());
 
     LOG.debug("Focused targets: %s", result.toString());
@@ -1126,10 +1152,11 @@ public class ProjectCommand extends BuildCommand {
   }
 
   @SuppressWarnings(value = "unchecked")
-  private static TargetNode<XcodeWorkspaceConfigDescription.Arg> castToXcodeWorkspaceTargetNode(
-      TargetNode<?> targetNode) {
-    Preconditions.checkArgument(targetNode.getType() == XcodeWorkspaceConfigDescription.TYPE);
-    return (TargetNode<XcodeWorkspaceConfigDescription.Arg>) targetNode;
+  private static TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castToXcodeWorkspaceTargetNode(
+      TargetNode<?, ?> targetNode) {
+    Preconditions.checkArgument(
+        targetNode.getDescription() instanceof XcodeWorkspaceConfigDescription);
+    return (TargetNode<XcodeWorkspaceConfigDescription.Arg, ?>) targetNode;
   }
 
   private void checkForAndKillXcodeIfRunning(CommandRunnerParams params, boolean enablePrompt)
@@ -1206,7 +1233,7 @@ public class ProjectCommand extends BuildCommand {
   @VisibleForTesting
   static ImmutableSet<BuildTarget> getRootsFromPredicate(
       TargetGraph projectGraph,
-      Predicate<TargetNode<?>> rootsPredicate) {
+      Predicate<TargetNode<?, ?>> rootsPredicate) {
     return FluentIterable
         .from(projectGraph.getNodes())
         .filter(rootsPredicate)
@@ -1300,12 +1327,11 @@ public class ProjectCommand extends BuildCommand {
 
   public static ImmutableSet<BuildTarget> replaceWorkspacesWithSourceTargetsIfPossible(
       ImmutableSet<BuildTarget> buildTargets, TargetGraph projectGraph) {
-    Iterable<TargetNode<?>> targetNodes = projectGraph.getAll(buildTargets);
+    Iterable<TargetNode<?, ?>> targetNodes = projectGraph.getAll(buildTargets);
     ImmutableSet.Builder<BuildTarget> resultBuilder = ImmutableSet.builder();
-    for (TargetNode<?> node : targetNodes) {
-      BuildRuleType type = node.getType();
-      if (type == XcodeWorkspaceConfigDescription.TYPE) {
-        TargetNode<XcodeWorkspaceConfigDescription.Arg> castedWorkspaceNode =
+    for (TargetNode<?, ?> node : targetNodes) {
+      if (node.getDescription() instanceof XcodeWorkspaceConfigDescription) {
+        TargetNode<XcodeWorkspaceConfigDescription.Arg, ?> castedWorkspaceNode =
             castToXcodeWorkspaceTargetNode(node);
         Optional<BuildTarget> srcTarget = castedWorkspaceNode.getConstructorArg().srcTarget;
         if (srcTarget.isPresent()) {
@@ -1320,13 +1346,13 @@ public class ProjectCommand extends BuildCommand {
     return resultBuilder.build();
   }
 
-  private static boolean canGenerateImplicitWorkspaceForType(BuildRuleType type) {
+  private static boolean canGenerateImplicitWorkspaceForDescription(Description<?> description) {
     // We weren't given a workspace target, but we may have been given something that could
     // still turn into a workspace (for example, a library or an actual app rule). If that's the
     // case we still want to generate a workspace.
-    return type == AppleBinaryDescription.TYPE ||
-        type == AppleBundleDescription.TYPE ||
-        type == AppleLibraryDescription.TYPE;
+    return description instanceof AppleBinaryDescription ||
+        description instanceof AppleBundleDescription ||
+        description instanceof AppleLibraryDescription;
   }
 
   /**
@@ -1335,7 +1361,7 @@ public class ProjectCommand extends BuildCommand {
    * tests
    */
   private static XcodeWorkspaceConfigDescription.Arg createImplicitWorkspaceArgs(
-      TargetNode<?> sourceTargetNode) {
+      TargetNode<?, ?> sourceTargetNode) {
     XcodeWorkspaceConfigDescription.Arg workspaceArgs = new XcodeWorkspaceConfigDescription.Arg();
     workspaceArgs.srcTarget = Optional.of(sourceTargetNode.getBuildTarget());
     workspaceArgs.actionConfigNames = ImmutableMap.of();
@@ -1349,8 +1375,8 @@ public class ProjectCommand extends BuildCommand {
     return workspaceArgs;
   }
 
-  private static boolean isTargetWithAnnotations(TargetNode<?> target) {
-    if (target.getType() != JavaLibraryDescription.TYPE) {
+  private static boolean isTargetWithAnnotations(TargetNode<?, ?> target) {
+    if (target.getDescription() instanceof JavaLibraryDescription) {
       return false;
     }
     JavaLibraryDescription.Arg arg = ((JavaLibraryDescription.Arg) target.getConstructorArg());
@@ -1364,19 +1390,19 @@ public class ProjectCommand extends BuildCommand {
 
 
   public static class AggregationModeOptionHandler
-      extends OptionHandler<IjModuleGraph.AggregationMode> {
+      extends OptionHandler<AggregationMode> {
 
     public AggregationModeOptionHandler(
         CmdLineParser parser,
         OptionDef option,
-        Setter<? super IjModuleGraph.AggregationMode> setter) {
+        Setter<? super AggregationMode> setter) {
       super(parser, option, setter);
     }
 
     @Override
     public int parseArguments(Parameters params) throws CmdLineException {
       String param = params.getParameter(0);
-      setter.addValue(IjModuleGraph.AggregationMode.fromString(param));
+      setter.addValue(AggregationMode.fromString(param));
       return 1;
     }
 

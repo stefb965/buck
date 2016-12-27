@@ -20,10 +20,10 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSortedSet;
@@ -31,13 +31,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 
 public class FolderDescription implements Description<FolderDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("folder");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -52,7 +45,7 @@ public class FolderDescription implements Description<FolderDescription.Arg> {
       A args) {
     return new Folder(
         params,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         args.out.orElse(params.getBuildTarget().getShortName()),
         args.srcs);
   }

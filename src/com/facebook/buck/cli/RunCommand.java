@@ -23,6 +23,7 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.HumanReadableException;
@@ -82,7 +83,8 @@ public final class RunCommand extends AbstractCommand {
 
   /** @return the normalized target name for command to run. */
   private String getTarget(BuckConfig buckConfig) {
-      return getCommandLineBuildTargetNormalizer(buckConfig).normalize(arguments.get().get(0));
+      return Iterables.getOnlyElement(
+          getCommandLineBuildTargetNormalizer(buckConfig).normalize(arguments.get().get(0)));
   }
 
   @Override
@@ -140,7 +142,8 @@ public final class RunCommand extends AbstractCommand {
     // Clearly something bad has happened here. If you are using `buck run` to start up a server
     // or some other process that is meant to "run forever," then it's pretty common to do:
     // `buck run`, test server, hit ctrl-C, edit server code, repeat. This should not wedge buckd.
-    SourcePathResolver resolver = new SourcePathResolver(build.getRuleResolver());
+    SourcePathResolver resolver =
+        new SourcePathResolver(new SourcePathRuleFinder(build.getRuleResolver()));
     Tool executable = binaryBuildRule.getExecutableCommand();
     ListeningProcessExecutor processExecutor = new ListeningProcessExecutor();
     ProcessExecutorParams processExecutorParams =
@@ -150,7 +153,7 @@ public final class RunCommand extends AbstractCommand {
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
                     .putAll(params.getEnvironment())
-                    .putAll(executable.getEnvironment(resolver))
+                    .putAll(executable.getEnvironment())
                     .build())
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();

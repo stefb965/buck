@@ -132,23 +132,6 @@ public class CxxBuckConfig {
     return Optional.of(split.build());
   }
 
-  public CxxPreprocessMode getPreprocessMode() {
-    Optional<CxxPreprocessMode> setting = delegate.getEnum(
-      cxxSection, "preprocess_mode", CxxPreprocessMode.class);
-
-    if (setting.isPresent()) {
-      return setting.get();
-    }
-
-    // Support legacy configuration option
-    return delegate.getBooleanValue(
-            cxxSection,
-            "combined_preprocess_and_compile",
-            /* default*/ false)
-        ? CxxPreprocessMode.COMBINED
-        : CxxPreprocessMode.SEPARATE;
-  }
-
   /*
    * Constructs the appropriate Archiver for the specified platform.
    */
@@ -281,6 +264,10 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, "pch_enabled", true);
   }
 
+  public boolean isPchIlogEnabled() {
+    return delegate.getBooleanValue(cxxSection, "pch_ilog_enabled", false);
+  }
+
   public boolean sandboxSources() {
     return delegate.getBooleanValue(cxxSection, "sandbox_sources", false);
   }
@@ -301,6 +288,17 @@ public class CxxBuckConfig {
 
   public int getDebugPathSanitizerLimit() {
     return delegate.getInteger(cxxSection, "debug_path_sanitizer_limit").orElse(250);
+  }
+
+  public Optional<ToolProvider> getToolProvider(String name) {
+    return delegate.getToolProvider(cxxSection, name);
+  }
+
+  /**
+   * @return whether to enabled shared library interfaces.
+   */
+  public boolean shouldUseSharedLibraryInterfaces() {
+    return delegate.getBooleanValue(cxxSection, "shared_library_interfaces", false);
   }
 
   @Value.Immutable

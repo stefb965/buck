@@ -20,10 +20,10 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSet;
 
@@ -45,13 +45,6 @@ import com.google.common.collect.ImmutableSet;
 public class XcodePrebuildScriptDescription
   implements Description<XcodeScriptDescriptionArg>, Flavored {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("xcode_prebuild_script");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
   @Override
   public XcodeScriptDescriptionArg createUnpopulatedConstructorArg() {
     return new XcodeScriptDescriptionArg();
@@ -63,7 +56,7 @@ public class XcodePrebuildScriptDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    return new NoopBuildRule(params, new SourcePathResolver(resolver));
+    return new NoopBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
   }
 
   @Override

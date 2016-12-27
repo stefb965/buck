@@ -41,13 +41,13 @@ import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.AppendToZipStep;
@@ -126,7 +126,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       transitiveClasspathsSupplier;
   private final Supplier<ImmutableSet<JavaLibrary>> transitiveClasspathDepsSupplier;
 
-  private final SourcePath abiJar;
+  private final BuildTarget abiJar;
   private final boolean trackClassUsage;
   @AddToRuleKey
   @SuppressWarnings("PMD.UnusedPrivateField")
@@ -142,6 +142,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @AddToRuleKey
   private final ImmutableSet<Pattern> classesToRemoveFromJar;
 
+  private final SourcePathRuleFinder ruleFinder;
   @AddToRuleKey
   private final CompileToJarStepFactory compileStepFactory;
 
@@ -176,6 +177,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   public DefaultJavaLibrary(
       final BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
       Optional<Path> generatedSourceFolder,
@@ -183,7 +185,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
-      SourcePath abiJar,
+      BuildTarget abiJar,
+      ImmutableSortedSet<SourcePath> abiInputs,
       boolean trackClassUsage,
       ImmutableSet<Path> additionalClasspathEntries,
       CompileToJarStepFactory compileStepFactory,
@@ -195,6 +198,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this(
         params,
         resolver,
+        ruleFinder,
         srcs,
         resources,
         generatedSourceFolder,
@@ -205,7 +209,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         abiJar,
         trackClassUsage,
         new JarArchiveDependencySupplier(
-            Suppliers.memoize(() -> JavaLibraryRules.getAbiInputs(params.getDeps())),
+            abiInputs,
             params.getProjectFilesystem()),
         additionalClasspathEntries,
         compileStepFactory,
@@ -219,6 +223,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   private DefaultJavaLibrary(
       BuildRuleParams params,
       final SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       Set<? extends SourcePath> srcs,
       Set<? extends SourcePath> resources,
       Optional<Path> generatedSourceFolder,
@@ -226,7 +231,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<BuildRule> exportedDeps,
       ImmutableSortedSet<BuildRule> providedDeps,
-      SourcePath abiJar,
+      BuildTarget abiJar,
       boolean trackClassUsage,
       final JarArchiveDependencySupplier abiClasspath,
       ImmutableSet<Path> additionalClasspathEntries,
@@ -237,8 +242,9 @@ public class DefaultJavaLibrary extends AbstractBuildRule
       ImmutableSortedSet<BuildTarget> tests,
       ImmutableSet<Pattern> classesToRemoveFromJar) {
     super(
-        params.appendExtraDeps(() -> resolver.filterBuildRuleInputs(abiClasspath.get())),
+        params.appendExtraDeps(() -> ruleFinder.filterBuildRuleInputs(abiClasspath.get())),
         resolver);
+    this.ruleFinder = ruleFinder;
     this.compileStepFactory = compileStepFactory;
 
     // Exported deps are meant to be forwarded onto the CLASSPATH for dependents,
@@ -334,8 +340,8 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSortedSet<Path> getJavaSrcs() {
-    return ImmutableSortedSet.copyOf(getResolver().deprecatedAllPaths(srcs));
+  public ImmutableSortedSet<SourcePath> getJavaSrcs() {
+    return srcs;
   }
 
   @Override
@@ -461,6 +467,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         new CopyResourcesStep(
             getProjectFilesystem(),
             getResolver(),
+            ruleFinder,
             target,
             resources,
             outputDirectory,
@@ -498,9 +505,10 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
       compileStepFactory.createCompileToJarStep(
           context,
-          getJavaSrcs(),
+          getResolver().getAllRelativePaths(getJavaSrcs()),
           target,
           getResolver(),
+          ruleFinder,
           getProjectFilesystem(),
           declared,
           outputDirectory,
@@ -519,9 +527,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
           classesToRemoveFromJar);
     }
 
-    Path abiJar = getOutputJarDirPath(target, getProjectFilesystem())
-        .resolve(String.format("%s-abi.jar", target.getShortNameAndFlavorPostfix()));
-
     if (outputJar.isPresent()) {
       Path output = outputJar.get();
 
@@ -538,17 +543,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
                 classesToRemoveFromJar));
       }
       buildableContext.recordArtifact(output);
-
-      // Calculate the ABI.
-      steps.add(new CalculateAbiStep(buildableContext, getProjectFilesystem(), output, abiJar));
-    } else {
-      Path scratch = BuildTargets.getScratchPath(
-          getProjectFilesystem(),
-          target,
-          String.format("%%s/%s-temp-abi.jar", target.getShortNameAndFlavorPostfix()));
-      steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), scratch.getParent()));
-      steps.add(new TouchStep(getProjectFilesystem(), scratch));
-      steps.add(new CalculateAbiStep(buildableContext, getProjectFilesystem(), scratch, abiJar));
     }
 
     JavaLibraryRules.addAccumulateClassNamesStep(this, buildableContext, steps);
@@ -601,7 +595,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   }
 
   @Override
-  public Optional<SourcePath> getAbiJar() {
+  public Optional<BuildTarget> getAbiJar() {
     return outputJar.isPresent() ? Optional.of(abiJar) : Optional.empty();
   }
 

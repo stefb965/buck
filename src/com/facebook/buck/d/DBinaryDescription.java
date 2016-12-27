@@ -27,28 +27,29 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.versions.VersionRoot;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 
 public class DBinaryDescription implements
     Description<DBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription<DBinaryDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("d_binary");
+    ImplicitDepsInferringDescription<DBinaryDescription.Arg>,
+    VersionRoot<DBinaryDescription.Arg> {
 
   public static final Flavor BINARY_FLAVOR = ImmutableFlavor.of("binary");
 
@@ -66,11 +67,6 @@ public class DBinaryDescription implements
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
@@ -83,7 +79,8 @@ public class DBinaryDescription implements
       A args)
       throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(buildRuleResolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
@@ -115,7 +112,7 @@ public class DBinaryDescription implements
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
     executableBuilder.addArg(
         new SourcePathArg(
-            new SourcePathResolver(buildRuleResolver),
+            pathResolver,
             new BuildTargetSourcePath(
                 nativeLinkable.getBuildTarget())));
 
@@ -124,7 +121,8 @@ public class DBinaryDescription implements
     return new DBinary(
         params.copyWithExtraDeps(
             Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
-        new SourcePathResolver(buildRuleResolver),
+        pathResolver,
+        ruleFinder,
         executableBuilder.build(),
         nativeLinkable.getPathToOutput());
   }
@@ -135,6 +133,11 @@ public class DBinaryDescription implements
       CellPathResolver cellRoots,
       Arg constructorArg) {
     return cxxPlatform.getLd().getParseTimeDeps();
+  }
+
+  @Override
+  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
+    return true;
   }
 
   @SuppressFieldNotInitialized

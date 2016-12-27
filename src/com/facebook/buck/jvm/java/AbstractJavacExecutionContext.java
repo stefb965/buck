@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.Verbosity;
@@ -30,6 +31,7 @@ import org.immutables.value.Value;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.Optional;
 
 @Value.Immutable
 @BuckStyleTuple
@@ -39,11 +41,17 @@ abstract class AbstractJavacExecutionContext {
   public abstract ClassLoaderCache getClassLoaderCache();
   public abstract ObjectMapper getObjectMapper();
   public abstract Verbosity getVerbosity();
+  public abstract CellPathResolver getCellPathResolver();
   public abstract JavaPackageFinder getJavaPackageFinder();
   public abstract ProjectFilesystem getProjectFilesystem();
   public abstract ClassUsageFileWriter getUsedClassesFileWriter();
-  public abstract StandardJavaFileManagerFactory getFileManagerFactory();
   public abstract ImmutableMap<String, String> getEnvironment();
   public abstract ProcessExecutor getProcessExecutor();
   public abstract ImmutableList<Path> getAbsolutePathsForInputs();
+
+  /**
+   * Setting this to non-absent value enables direct to jar output.
+   */
+  public abstract Optional<DirectToJarOutputSettings> getDirectToJarOutputSettings();
+
 }

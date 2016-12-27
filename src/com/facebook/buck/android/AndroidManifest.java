@@ -30,7 +30,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
@@ -105,8 +104,8 @@ public class AndroidManifest extends AbstractBuildRule {
     commands.add(
         new GenerateManifestStep(
             getProjectFilesystem(),
-            getResolver().getAbsolutePath(skeletonFile),
-            ImmutableSet.copyOf(getResolver().getAllAbsolutePaths(manifestFiles)),
+            context.getSourcePathResolver().getAbsolutePath(skeletonFile),
+            context.getSourcePathResolver().getAllAbsolutePaths(manifestFiles),
             getPathToOutput()));
 
     buildableContext.recordArtifact(pathToOutputFile);

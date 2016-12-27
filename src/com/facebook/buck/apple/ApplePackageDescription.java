@@ -27,13 +27,13 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.shell.AbstractGenruleDescription;
@@ -54,7 +54,6 @@ public class ApplePackageDescription implements
     Description<ApplePackageDescription.Arg>,
     Flavored,
     ImplicitDepsInferringDescription<ApplePackageDescription.Arg> {
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_package");
 
   private final CxxPlatform defaultCxxPlatform;
   private final AppleConfig config;
@@ -77,13 +76,14 @@ public class ApplePackageDescription implements
       A args) throws NoSuchBuildTargetException {
     final BuildRule bundle = resolver.getRule(
         propagateFlavorsToTarget(params.getBuildTarget(), args.bundle));
-    final SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
 
     final Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
         getApplePackageConfig(
             params.getBuildTarget(),
             MacroArg.toMacroArgFunction(
-                AbstractGenruleDescription.MACRO_HANDLER,
+                AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER,
                 params.getBuildTarget(),
                 params.getCellRoots(),
                 resolver));
@@ -93,21 +93,18 @@ public class ApplePackageDescription implements
               .add(bundle)
               .addAll(
                   applePackageConfigAndPlatformInfo.get().getExpandedArg()
-                      .getDeps(sourcePathResolver))
+                      .getDeps(ruleFinder))
               .build()),
           sourcePathResolver,
           applePackageConfigAndPlatformInfo.get(),
-          new BuildTargetSourcePath(bundle.getBuildTarget()));
+          new BuildTargetSourcePath(bundle.getBuildTarget()),
+          bundle.isCacheable());
     } else {
       return new BuiltinApplePackage(
           params,
           sourcePathResolver,
           bundle);
     }
-  }
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -208,7 +205,7 @@ public class ApplePackageDescription implements
       if (packageConfig.isPresent()) {
         try {
           builder.addAll(
-            AbstractGenruleDescription.MACRO_HANDLER.extractParseTimeDeps(
+            AbstractGenruleDescription.PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
                 target,
                 cellNames,
                 packageConfig.get().getCommand()));

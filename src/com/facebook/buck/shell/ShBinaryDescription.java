@@ -20,10 +20,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSet;
@@ -31,13 +31,6 @@ import com.google.common.collect.ImmutableSortedSet;
 
 
 public class ShBinaryDescription implements Description<ShBinaryDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("sh_binary");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -50,7 +43,9 @@ public class ShBinaryDescription implements Description<ShBinaryDescription.Arg>
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    return new ShBinary(params, new SourcePathResolver(resolver), args.main, args.resources);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    return new ShBinary(params, pathResolver, ruleFinder, args.main, args.resources);
   }
 
   @SuppressFieldNotInitialized

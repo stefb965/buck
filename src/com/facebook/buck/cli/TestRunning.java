@@ -16,10 +16,9 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.GenerateCodeCoverageReportStep;
 import com.facebook.buck.jvm.java.JacocoConstants;
@@ -35,6 +34,9 @@ import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.IndividualTestEvent;
+import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestStatusMessageEvent;
@@ -54,6 +56,7 @@ import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.concurrent.MoreFutures;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -124,20 +127,22 @@ public class TestRunning {
       final TestRunningOptions options,
       ListeningExecutorService service,
       BuildEngine buildEngine,
-      final StepRunner stepRunner)
+      final StepRunner stepRunner,
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder)
       throws IOException, ExecutionException, InterruptedException {
 
-    ImmutableSet<JavaLibrary> rulesUnderTest;
+    ImmutableSet<JavaLibrary> rulesUnderTestForCoverage;
     // If needed, we first run instrumentation on the class files.
     if (options.isCodeCoverageEnabled()) {
-      rulesUnderTest = getRulesUnderTest(tests);
-      if (!rulesUnderTest.isEmpty()) {
+      rulesUnderTestForCoverage = getRulesUnderTest(tests);
+      if (!rulesUnderTestForCoverage.isEmpty()) {
         try {
           // We'll use the filesystem of the first rule under test. This will fail if there are any
           // tests from a different repo, but it'll help us bootstrap ourselves to being able to
           // support multiple repos
           // TODO(t8220837): Support tests in multiple repos
-          JavaLibrary library = rulesUnderTest.iterator().next();
+          JavaLibrary library = rulesUnderTestForCoverage.iterator().next();
           stepRunner.runStepForBuildTarget(
               executionContext,
               new MakeCleanDirectoryStep(
@@ -151,7 +156,7 @@ public class TestRunning {
         }
       }
     } else {
-      rulesUnderTest = ImmutableSet.of();
+      rulesUnderTestForCoverage = ImmutableSet.of();
     }
 
     final ImmutableSet<String> testTargets =
@@ -182,8 +187,7 @@ public class TestRunning {
       final Callable<TestResults> resultsInterpreter = getCachingCallable(
           test.interpretTestResults(
               executionContext,
-              /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty(),
-              /*isDryRun*/ options.isDryRun()));
+              /*isUsingTestSelectors*/ !options.getTestSelectorList().isEmpty()));
 
       boolean isTestRunRequired;
       isTestRunRequired = isTestRunRequiredForTest(
@@ -194,8 +198,7 @@ public class TestRunning {
           options.getTestResultCacheMode(),
           resultsInterpreter,
           !options.getTestSelectorList().isEmpty(),
-          !options.getEnvironmentOverrides().isEmpty(),
-          options.isDryRun());
+          !options.getEnvironmentOverrides().isEmpty());
 
       final Map<String, UUID> testUUIDMap = new HashMap<>();
       final AtomicReference<TestStatusMessageEvent.Started> currentTestStatusMessageEvent =
@@ -316,33 +319,16 @@ public class TestRunning {
       }
     }
 
-    final StepRunner.StepRunningCallback testStepRunningCallback =
-        new StepRunner.StepRunningCallback() {
-          @Override
-          public void stepsWillRun(Optional<BuildTarget> buildTarget) {
-            Preconditions.checkState(buildTarget.isPresent());
-            LOG.debug("Test steps will run for %s", buildTarget);
-            params.getBuckEventBus().post(TestRuleEvent.started(buildTarget.get()));
-          }
-
-          @Override
-          public void stepsDidRun(Optional<BuildTarget> buildTarget) {
-            Preconditions.checkState(buildTarget.isPresent());
-            LOG.debug("Test steps did run for %s", buildTarget);
-            params.getBuckEventBus().post(TestRuleEvent.finished(buildTarget.get()));
-          }
-        };
-
     for (TestRun testRun : parallelTestRuns) {
-      ListenableFuture<TestResults> testResults =
-          stepRunner.runStepsAndYieldResult(
-              executionContext,
-              testRun.getSteps(),
-              testRun.getTestResultsCallable(),
-              Optional.of(testRun.getTest().getBuildTarget()),
-              service,
-              testStepRunningCallback);
-        results.add(
+      ListenableFuture<TestResults> testResults = runStepsAndYieldResult(
+          stepRunner,
+          executionContext,
+          testRun.getSteps(),
+          testRun.getTestResultsCallable(),
+          testRun.getTest().getBuildTarget(),
+          params.getBuckEventBus(),
+          service);
+      results.add(
             transformTestResults(
                 params,
                 testResults,
@@ -359,7 +345,7 @@ public class TestRunning {
     final List<TestResults> completedResults = Lists.newArrayList();
 
     final ListeningExecutorService directExecutorService = MoreExecutors.newDirectExecutorService();
-    ListenableFuture<Void> uberFuture = stepRunner.addCallback(
+    ListenableFuture<Void> uberFuture = MoreFutures.addListenableCallback(
         parallelTestStepsFuture,
         new FutureCallback<List<TestResults>>() {
           @Override
@@ -371,13 +357,14 @@ public class TestRunning {
               separateResultsList.add(
                   transformTestResults(
                       params,
-                      stepRunner.runStepsAndYieldResult(
+                      runStepsAndYieldResult(
+                          stepRunner,
                           executionContext,
                           testRun.getSteps(),
                           testRun.getTestResultsCallable(),
-                          Optional.of(testRun.getTest().getBuildTarget()),
-                          directExecutorService,
-                          testStepRunningCallback),
+                          testRun.getTest().getBuildTarget(),
+                          params.getBuckEventBus(),
+                          directExecutorService),
                       testRun.getTest(),
                       testRun.getTestReportingCallback(),
                       testTargets,
@@ -440,19 +427,21 @@ public class TestRunning {
     }
 
     // Generate the code coverage report.
-    if (options.isCodeCoverageEnabled() && !rulesUnderTest.isEmpty()) {
+    if (options.isCodeCoverageEnabled() && !rulesUnderTestForCoverage.isEmpty()) {
       try {
         DefaultJavaPackageFinder defaultJavaPackageFinder =
             params.getBuckConfig().getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
         stepRunner.runStepForBuildTarget(
             executionContext,
             getReportCommand(
-                rulesUnderTest,
-                Optional.of(defaultJavaPackageFinder),
+                rulesUnderTestForCoverage,
+                defaultJavaPackageFinder,
                 params.getBuckConfig().getView(JavaBuckConfig.class)
                     .getDefaultJavaOptions()
                     .getJavaRuntimeLauncher(),
                 params.getCell().getFilesystem(),
+                sourcePathResolver,
+                ruleFinder,
                 JacocoConstants.getJacocoOutputDir(params.getCell().getFilesystem()),
                 options.getCoverageReportFormat(),
                 options.getCoverageReportTitle(),
@@ -614,8 +603,7 @@ public class TestRunning {
       TestRunningOptions.TestResultCacheMode resultCacheMode,
       Callable<TestResults> testResultInterpreter,
       boolean isRunningWithTestSelectors,
-      boolean hasEnvironmentOverrides,
-      boolean isDryRun)
+      boolean hasEnvironmentOverrides)
       throws IOException, ExecutionException, InterruptedException {
     boolean isTestRunRequired;
     BuildResult result;
@@ -630,9 +618,6 @@ public class TestRunning {
       isTestRunRequired = true;
     } else if (hasEnvironmentOverrides) {
       // This is rather obtuse, ideally the environment overrides can be hashed and compared...
-      isTestRunRequired = true;
-    } else if (isDryRun) {
-      // Test result caching does not work for dry runs, as the result file used is different.
       isTestRunRequired = true;
     } else if (((result = cachingBuildEngine.getBuildRuleResult(
         test.getBuildTarget())) != null) &&
@@ -786,36 +771,38 @@ public class TestRunning {
    */
   private static Step getReportCommand(
       ImmutableSet<JavaLibrary> rulesUnderTest,
-      Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
+      DefaultJavaPackageFinder defaultJavaPackageFinder,
       JavaRuntimeLauncher javaRuntimeLauncher,
       ProjectFilesystem filesystem,
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       Path outputDirectory,
       CoverageReportFormat format,
       String title,
       Optional<String> coverageIncludes,
       Optional<String> coverageExcludes) {
     ImmutableSet.Builder<String> srcDirectories = ImmutableSet.builder();
-    ImmutableSet.Builder<Path> pathsToClasses = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> pathsToJars = ImmutableSet.builder();
 
     // Add all source directories of java libraries that we are testing to -sourcepath.
     for (JavaLibrary rule : rulesUnderTest) {
       ImmutableSet<String> sourceFolderPath =
-          getPathToSourceFolders(rule, defaultJavaPackageFinderOptional, filesystem);
+          getPathToSourceFolders(rule, sourcePathResolver, ruleFinder, defaultJavaPackageFinder);
       if (!sourceFolderPath.isEmpty()) {
         srcDirectories.addAll(sourceFolderPath);
       }
-      Path classesDir = DefaultJavaLibrary.getClassesDir(rule.getBuildTarget(), filesystem);
-      if (classesDir == null) {
+      Path jarFile = rule.getPathToOutput();
+      if (jarFile == null) {
         continue;
       }
-      pathsToClasses.add(classesDir);
+      pathsToJars.add(jarFile);
     }
 
     return new GenerateCodeCoverageReportStep(
         javaRuntimeLauncher,
         filesystem,
         srcDirectories.build(),
-        pathsToClasses.build(),
+        pathsToJars.build(),
         outputDirectory,
         format,
         title,
@@ -829,37 +816,31 @@ public class TestRunning {
   @VisibleForTesting
   static ImmutableSet<String> getPathToSourceFolders(
       JavaLibrary rule,
-      Optional<DefaultJavaPackageFinder> defaultJavaPackageFinderOptional,
-      ProjectFilesystem filesystem) {
-    ImmutableSet<Path> javaSrcs = rule.getJavaSrcs();
+      SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
+      DefaultJavaPackageFinder defaultJavaPackageFinder) {
+    ImmutableSet<SourcePath> javaSrcs = rule.getJavaSrcs();
 
     // A Java library rule with just resource files has an empty javaSrcs.
     if (javaSrcs.isEmpty()) {
       return ImmutableSet.of();
     }
 
-    // If defaultJavaPackageFinderOptional is not present, then it could mean that there was an
-    // error reading from the buck configuration file.
-    if (!defaultJavaPackageFinderOptional.isPresent()) {
-      throw new HumanReadableException(
-          "Please include a [java] section with src_root property in the .buckconfig file.");
-    }
-
-    DefaultJavaPackageFinder defaultJavaPackageFinder = defaultJavaPackageFinderOptional.get();
-
     // Iterate through all source paths to make sure we are generating a complete set of source
     // folders for the source paths.
     Set<String> srcFolders = Sets.newHashSet();
     loopThroughSourcePath:
-    for (Path javaSrcPath : javaSrcs) {
-      if (MoreProjectFilesystems.isGeneratedFile(filesystem, javaSrcPath)) {
+    for (SourcePath javaSrcPath : javaSrcs) {
+      if (ruleFinder.getRule(javaSrcPath).isPresent()) {
         continue;
       }
+
+      Path javaSrcRelativePath = sourcePathResolver.getRelativePath(javaSrcPath);
 
       // If the source path is already under a known source folder, then we can skip this
       // source path.
       for (String srcFolder : srcFolders) {
-        if (javaSrcPath.startsWith(srcFolder)) {
+        if (javaSrcRelativePath.startsWith(srcFolder)) {
           continue loopThroughSourcePath;
         }
       }
@@ -868,7 +849,7 @@ public class TestRunning {
       // root.
       ImmutableSortedSet<String> pathsFromRoot = defaultJavaPackageFinder.getPathsFromRoot();
       for (String root : pathsFromRoot) {
-        if (javaSrcPath.startsWith(root)) {
+        if (javaSrcRelativePath.startsWith(root)) {
           srcFolders.add(root);
           continue loopThroughSourcePath;
         }
@@ -877,7 +858,7 @@ public class TestRunning {
       // Traverse the file system from the parent directory of the java file until we hit the
       // parent of the src root directory.
       ImmutableSet<String> pathElements = defaultJavaPackageFinder.getPathElements();
-      Path directory = filesystem.getPathForRelativePath(javaSrcPath.getParent());
+      Path directory = sourcePathResolver.getAbsolutePath(javaSrcPath).getParent();
       if (pathElements.isEmpty()) {
         continue;
       }
@@ -899,5 +880,29 @@ public class TestRunning {
     }
 
     return ImmutableSet.copyOf(srcFolders);
+  }
+
+  private static ListenableFuture<TestResults> runStepsAndYieldResult(
+      StepRunner stepRunner,
+      ExecutionContext context,
+      final List<Step> steps,
+      final Callable<TestResults> interpretResults,
+      final BuildTarget buildTarget,
+      BuckEventBus eventBus,
+      ListeningExecutorService listeningExecutorService) {
+    Preconditions.checkState(!listeningExecutorService.isShutdown());
+    Callable<TestResults> callable = () -> {
+      LOG.debug("Test steps will run for %s", buildTarget);
+      eventBus.post(TestRuleEvent.started(buildTarget));
+      for (Step step : steps) {
+        stepRunner.runStepForBuildTarget(context, step, Optional.of(buildTarget));
+      }
+      LOG.debug("Test steps did run for %s", buildTarget);
+      eventBus.post(TestRuleEvent.finished(buildTarget));
+
+      return interpretResults.call();
+    };
+
+    return listeningExecutorService.submit(callable);
   }
 }

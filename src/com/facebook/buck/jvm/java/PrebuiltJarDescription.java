@@ -19,6 +19,7 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -26,12 +27,11 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -47,13 +47,6 @@ import java.util.Optional;
 
 public class PrebuiltJarDescription implements Description<PrebuiltJarDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_jar");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
   @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
@@ -64,22 +57,26 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       TargetGraph targetGraph,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+      A args) throws NoSuchBuildTargetException {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+
+    if (params.getBuildTarget().getFlavors().contains(CalculateAbi.FLAVOR)) {
+      return CalculateAbi.of(
+          params.getBuildTarget(),
+          pathResolver,
+          ruleFinder,
+          params,
+          args.binaryJar);
+    }
 
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            args.binaryJar));
 
     BuildRule prebuilt = new PrebuiltJar(
         params,
         pathResolver,
         args.binaryJar,
-        new BuildTargetSourcePath(abiJarTarget),
+        abiJarTarget,
         args.sourceJar,
         args.gwtJar,
         args.javadocUrl,

@@ -30,6 +30,7 @@ import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
@@ -65,10 +66,12 @@ public class PythonTest
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage;
+  private final SourcePathRuleFinder ruleFinder;
 
   public PythonTest(
       BuildRuleParams params,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       final Supplier<ImmutableMap<String, String>> env,
       final PythonBinary binary,
       ImmutableSet<Label> labels,
@@ -77,11 +80,12 @@ public class PythonTest
       ImmutableSet<String> contacts) {
 
     super(params, resolver);
+    this.ruleFinder = ruleFinder;
 
     this.env = Suppliers.memoize(
         () -> {
           ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-          environment.putAll(binary.getExecutableCommand().getEnvironment(getResolver()));
+          environment.putAll(binary.getExecutableCommand().getEnvironment());
           environment.putAll(env.get());
           return environment.build();
         });
@@ -151,25 +155,21 @@ public class PythonTest
   @Override
   public Callable<TestResults> interpretTestResults(
       final ExecutionContext executionContext,
-      boolean isUsingTestSelectors,
-      final boolean isDryRun) {
+      boolean isUsingTestSelectors) {
     return () -> {
-      ImmutableList.Builder<TestCaseSummary> summaries = ImmutableList.builder();
-      if (!isDryRun) {
-        Optional<String> resultsFileContents =
-            getProjectFilesystem().readFileIfItExists(
-                getPathToTestOutputResult());
-        ObjectMapper mapper = executionContext.getObjectMapper();
-        TestResultSummary[] testResultSummaries = mapper.readValue(
-            resultsFileContents.get(),
-            TestResultSummary[].class);
-        summaries.add(new TestCaseSummary(
-            getBuildTarget().getFullyQualifiedName(),
-            ImmutableList.copyOf(testResultSummaries)));
-      }
+      Optional<String> resultsFileContents =
+          getProjectFilesystem().readFileIfItExists(
+              getPathToTestOutputResult());
+      ObjectMapper mapper = executionContext.getObjectMapper();
+      TestResultSummary[] testResultSummaries = mapper.readValue(
+          resultsFileContents.get(),
+          TestResultSummary[].class);
       return TestResults.of(
           getBuildTarget(),
-          summaries.build(),
+          ImmutableList.of(
+              new TestCaseSummary(
+                  getBuildTarget().getFullyQualifiedName(),
+                  ImmutableList.copyOf(testResultSummaries))),
           contacts,
           labels.stream()
               .map(Object::toString)
@@ -188,7 +188,7 @@ public class PythonTest
   @Override
   public ImmutableSortedSet<BuildRule> getRuntimeDeps() {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(binary.getExecutableCommand().getDeps(getResolver()))
+        .addAll(binary.getExecutableCommand().getDeps(ruleFinder))
         .addAll(getDeclaredDeps())
         .build();
   }

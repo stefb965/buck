@@ -43,7 +43,7 @@ public class HashedFileTool implements Tool {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     return ImmutableSortedSet.of();
   }
 
@@ -58,7 +58,7 @@ public class HashedFileTool implements Tool {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+  public ImmutableMap<String, String> getEnvironment() {
     return ImmutableMap.of();
   }
 

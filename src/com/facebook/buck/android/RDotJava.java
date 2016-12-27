@@ -18,13 +18,13 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
-import com.facebook.buck.jvm.java.BaseCompileToJarStepFactory;
 import com.facebook.buck.jvm.java.ClasspathChecker;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.NoOpClassUsageFileWriter;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -51,12 +51,12 @@ public class RDotJava {
       JavacOptions javacOptions,
       BuildTarget buildTarget,
       SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem) {
 
     return new JavacStep(
         outputDirectory,
         NoOpClassUsageFileWriter.instance(),
-        BaseCompileToJarStepFactory.DEFAULT_FILE_MANAGER_FACTORY,
         Optional.empty(),
         javaSourceFilePaths,
         pathToSrcsList,
@@ -68,7 +68,9 @@ public class RDotJava {
         buildTarget,
         Optional.empty(),
         resolver,
+        ruleFinder,
         filesystem,
-        new ClasspathChecker());
+        new ClasspathChecker(),
+        /* directToJarOutputSettings */ Optional.empty());
   }
 }

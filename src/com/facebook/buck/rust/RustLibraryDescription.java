@@ -16,7 +16,10 @@
 
 package com.facebook.buck.rust;
 
+import static com.facebook.buck.rust.RustLinkables.ruleToCrateName;
+
 import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.CxxPlatforms;
 import com.facebook.buck.cxx.Linker;
 import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.model.BuildTarget;
@@ -24,14 +27,15 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -43,9 +47,8 @@ import java.util.Optional;
 
 public class RustLibraryDescription implements
     Description<RustLibraryDescription.Arg>,
-    ImplicitDepsInferringDescription<RustLibraryDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("rust_library");
+    ImplicitDepsInferringDescription<RustLibraryDescription.Arg>,
+    VersionPropagator<RustLibraryDescription.Arg> {
 
   private final RustBuckConfig rustBuckConfig;
   private final CxxPlatform cxxPlatform;
@@ -55,11 +58,6 @@ public class RustLibraryDescription implements
       CxxPlatform cxxPlatform) {
     this.rustBuckConfig = rustBuckConfig;
     this.cxxPlatform = cxxPlatform;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -78,13 +76,14 @@ public class RustLibraryDescription implements
 
     ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
 
-    rustcArgs.addAll(rustBuckConfig.getRustCompilerFlags());
+    rustcArgs.addAll(rustBuckConfig.getRustLibraryFlags());
     rustcArgs.addAll(args.rustcFlags);
 
     return new RustLibrary(
         params,
-        new SourcePathResolver(resolver),
-        args.crate.orElse(params.getBuildTarget().getShortName()),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
+        args.crate.orElse(ruleToCrateName(params.getBuildTarget().getShortName())),
+        args.crateRoot,
         ImmutableSortedSet.copyOf(args.srcs),
         ImmutableSortedSet.copyOf(args.features),
         rustcArgs.build(),
@@ -104,10 +103,7 @@ public class RustLibraryDescription implements
     ToolProvider compiler = rustBuckConfig.getRustCompiler();
     deps.addAll(compiler.getParseTimeDeps());
 
-    LinkerProvider linker =
-        rustBuckConfig.getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType());
-
-    deps.addAll(linker.getParseTimeDeps());
+    deps.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
 
     return deps.build();
   }
@@ -121,5 +117,6 @@ public class RustLibraryDescription implements
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<Linker.LinkableDepType> linkStyle;
     public Optional<String> crate;
+    public Optional<SourcePath> crateRoot;
   }
 }

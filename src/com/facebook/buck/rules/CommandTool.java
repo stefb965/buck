@@ -73,12 +73,12 @@ public class CommandTool implements Tool {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
     if (baseTool.isPresent()) {
-      deps.addAll(baseTool.get().getDeps(resolver));
+      deps.addAll(baseTool.get().getDeps(ruleFinder));
     }
-    deps.addAll(resolver.filterBuildRuleInputs(getInputs()));
+    deps.addAll(ruleFinder.filterBuildRuleInputs(getInputs()));
     deps.addAll(extraDeps);
     return deps.build();
   }
@@ -96,10 +96,10 @@ public class CommandTool implements Tool {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+  public ImmutableMap<String, String> getEnvironment() {
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     if (baseTool.isPresent()) {
-      env.putAll(baseTool.get().getEnvironment(resolver));
+      env.putAll(baseTool.get().getEnvironment());
     }
     env.putAll(Arg.stringify(environment));
     return env.build();

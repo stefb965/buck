@@ -34,11 +34,11 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -67,8 +67,6 @@ import java.util.regex.Pattern;
 
 public class NdkLibraryDescription implements Description<NdkLibraryDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("ndk_library");
-
   private static final Pattern EXTENSIONS_REGEX =
       Pattern.compile(
               ".*\\." +
@@ -88,11 +86,6 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
       ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
     this.ndkVersion = ndkVersion;
     this.cxxPlatforms = Preconditions.checkNotNull(cxxPlatforms);
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -161,7 +154,8 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
       BuildRuleParams params,
       BuildRuleResolver resolver) throws NoSuchBuildTargetException {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     ImmutableList.Builder<String> outputLinesBuilder = ImmutableList.builder();
     ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
@@ -180,7 +174,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
 
       // We add any dependencies from the C/C++ preprocessor input to this rule, even though
       // it technically should be added to the top-level rule.
-      deps.addAll(cxxPreprocessorInput.getDeps(resolver, pathResolver));
+      deps.addAll(cxxPreprocessorInput.getDeps(resolver, ruleFinder));
 
       // Add in the transitive preprocessor flags contributed by C/C++ library rules into the
       // NDK build.
@@ -210,7 +204,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
       // it technically should be added to the top-level rule.
       deps.addAll(
           nativeLinkableInput.getArgs().stream()
-              .flatMap(arg -> arg.getDeps(pathResolver).stream())
+              .flatMap(arg -> arg.getDeps(ruleFinder).stream())
               .iterator());
 
       // Add in the transitive native linkable flags contributed by C/C++ library rules into the
@@ -348,7 +342,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescription.
             ImmutableSortedSet.<BuildRule>naturalOrder()
                 .addAll(makefilePair.getSecond())
                 .build()),
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         getGeneratedMakefilePath(params.getBuildTarget(), params.getProjectFilesystem()),
         makefilePair.getFirst(),
         sources,

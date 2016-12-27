@@ -19,6 +19,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 
@@ -32,7 +33,7 @@ import java.nio.file.Path;
  * This arg represents such kind of object file in the list of args, so later we can easily create
  * such file list for the linker.
  */
-public class FileListableLinkerInputArg extends Arg {
+public class FileListableLinkerInputArg extends Arg implements HasSourcePath {
 
   private final SourcePathArg value;
 
@@ -53,8 +54,8 @@ public class FileListableLinkerInputArg extends Arg {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return value.getDeps(resolver);
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return value.getDeps(ruleFinder);
   }
 
   @Override
@@ -96,5 +97,15 @@ public class FileListableLinkerInputArg extends Arg {
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     value.appendToRuleKey(sink);
+  }
+
+  @Override
+  public SourcePath getPath() {
+    return value.getPath();
+  }
+
+  @Override
+  public SourcePathResolver getPathResolver() {
+    return value.getPathResolver();
   }
 }

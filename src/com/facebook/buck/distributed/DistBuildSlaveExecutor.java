@@ -33,6 +33,7 @@ import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodeFactory;
@@ -203,10 +204,12 @@ public class DistBuildSlaveExecutor {
     }
 
     createActionGraphAndResolver();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(Preconditions.checkNotNull(
+        actionGraphAndResolver).getResolver());
     cachingBuildEngineDelegate =
         new DistBuildCachingEngineDelegate(
-            new SourcePathResolver(
-                Preconditions.checkNotNull(actionGraphAndResolver).getResolver()),
+            new SourcePathResolver(ruleFinder),
+            ruleFinder,
             args.getState(),
             fileHashLoaders);
     return cachingBuildEngineDelegate;
@@ -219,7 +222,7 @@ public class DistBuildSlaveExecutor {
   private DistBuildTargetGraphCodec createGraphCodec() {
     DistBuildTypeCoercerFactory typeCoercerFactory =
         new DistBuildTypeCoercerFactory(args.getObjectMapper());
-    ParserTargetNodeFactory<TargetNode<?>> parserTargetNodeFactory =
+    ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory));
@@ -227,10 +230,10 @@ public class DistBuildSlaveExecutor {
     DistBuildTargetGraphCodec targetGraphCodec = new DistBuildTargetGraphCodec(
         args.getObjectMapper(),
         parserTargetNodeFactory,
-        new Function<TargetNode<?>, Map<String, Object>>() {
+        new Function<TargetNode<?, ?>, Map<String, Object>>() {
           @Nullable
           @Override
-          public Map<String, Object> apply(TargetNode<?> input) {
+          public Map<String, Object> apply(TargetNode<?, ?> input) {
             try {
               return args.getParser().getRawTargetNode(
                   args.getBuckEventBus(),

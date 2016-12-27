@@ -16,57 +16,48 @@
 
 package com.facebook.buck.jvm.java;
 
-import static org.easymock.EasyMock.anyObject;
-import static org.easymock.EasyMock.createNiceMock;
-import static org.easymock.EasyMock.expect;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.event.BuckEventBusFactory;
-import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.step.Step;
-import com.facebook.buck.step.fs.CopyStep;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.testutil.Zip;
+import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.google.common.collect.ImmutableSortedSet;
 
-import org.easymock.EasyMock;
+import org.junit.Rule;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.Set;
 
 public class JavaSourceJarTest {
 
-  @Test
-  public void outputNameShouldIndicateThatTheOutputIsASrcJar() throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver = new BuildRuleResolver(
-        TargetGraph.EMPTY,
-        new DefaultTargetNodeToBuildRuleTransformer());
+  @Rule
+  public TemporaryPaths tmp = new TemporaryPaths();
 
+  @Test
+  public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
     JavaSourceJar rule = new JavaSourceJar(
-        new FakeBuildRuleParamsBuilder("//example:target#src").build(),
-        new SourcePathResolver(resolver),
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//example:target"))
-            .build(resolver),
-        RuleGatherer.SINGLE_JAR,
-        Optional.<Path>empty(),
-        Optional.<String>empty());
+        new FakeBuildRuleParamsBuilder("//example:target").build(),
+        new SourcePathResolver(new SourcePathRuleFinder(
+            new BuildRuleResolver(
+              TargetGraph.EMPTY,
+              new DefaultTargetNodeToBuildRuleTransformer())
+        )),
+        Optional.empty(),
+        Optional.empty(),
+        ImmutableSortedSet.of(),
+        ImmutableSortedSet.of());
 
     Path output = rule.getPathToOutput();
 
@@ -75,53 +66,64 @@ public class JavaSourceJarTest {
   }
 
   @Test
-  public void shouldOnlyIncludePathBasedSources() throws NoSuchBuildTargetException {
-    BuildRuleResolver resolver = new BuildRuleResolver(
-        TargetGraph.EMPTY,
-        new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    SourcePath fileBased = new FakeSourcePath("some/path/File.java");
-    BuildRule dep =
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//cheese:cake"))
-            .build(resolver);
-    SourcePath ruleBased = new BuildTargetSourcePath(dep.getBuildTarget());
+  public void shouldIncludeSourcesFromBuildTargetsAndPlainPaths() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "src-jar",
+        tmp);
+    workspace.setUp();
 
-    JavaPackageFinder finderStub = createNiceMock(JavaPackageFinder.class);
-    expect(finderStub.findJavaPackageFolder((Path) anyObject()))
-        .andStubReturn(Paths.get("cheese"));
-    expect(finderStub.findJavaPackage((Path) anyObject())).andStubReturn("cheese");
+    Path output = workspace.buildAndReturnOutput("//:lib#src");
 
-    // No need to verify. It's a stub. I don't care about the interactions.
-    EasyMock.replay(finderStub);
 
-    BuildRule lib = JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance(
-        "//example:target"))
-        .addSrc(ruleBased)
-        .addSrc(fileBased)
-        .build(resolver);
+    Zip zip = new Zip(output, /* for writing? */ false);
+    Set<String> fileNames = zip.getFileNames();
 
-    JavaSourceJar rule = new JavaSourceJar(
-        new FakeBuildRuleParamsBuilder("//example:target#src").build(),
-        pathResolver,
-        lib,
-        RuleGatherer.SINGLE_JAR,
-        Optional.<Path>empty(),
-        Optional.<String>empty());
+    assertTrue(fileNames.contains("com/example/Direct.java"));
+    assertTrue(fileNames.contains("com/example/Generated.java"));
 
-    BuildContext buildContext = BuildContext.builder()
-        .setActionGraph(new ActionGraph(ImmutableList.of()))
-        .setJavaPackageFinder(finderStub)
-        .setEventBus(BuckEventBusFactory.newInstance())
-        .build();
-    ImmutableList<Step> steps = rule.getBuildSteps(
-        buildContext,
-        new FakeBuildableContext());
+    // output should not contain a transitive dep
+    assertFalse(fileNames.contains("com/example/Transitive.java"));
+  }
 
-    // There should be a CopyStep per file being copied. Count 'em.
-    int copyStepsCount = FluentIterable.from(steps)
-        .filter(CopyStep.class::isInstance)
-        .size();
+  @Test
+  public void shouldNotIncludeNonJavaFiles() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "src-jar",
+        tmp);
+    workspace.setUp();
 
-    assertEquals(1, copyStepsCount);
+    Path output = workspace.buildAndReturnOutput("//:lib#src");
+
+
+    Zip zip = new Zip(output, /* for writing? */ false);
+    Set<String> fileNames = zip.getFileNames();
+
+    assertFalse(fileNames.contains("com/example/hello.txt"));
+  }
+
+  @Test
+  public void shouldBuildMavenisedSourceJars() throws IOException {
+    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
+        this,
+        "src-jar",
+        tmp);
+    workspace.setUp();
+
+    Path output = workspace.buildAndReturnOutput("//:lib#maven,src");
+
+
+    Zip zip = new Zip(output, /* for writing? */ false);
+    Set<String> fileNames = zip.getFileNames();
+
+    // output should not contain any files from "//:mvn-dep"
+    assertFalse(fileNames.contains("com/example/MavenSource.java"));
+
+    // output should contain a transitive dep
+    assertTrue(fileNames.contains("com/example/Transitive.java"));
+
+    // output should contain a direct dep
+    assertTrue(fileNames.contains("com/example/Direct.java"));
   }
 }

@@ -20,12 +20,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,16 +38,10 @@ public class JsBinaryDescription implements
     Description<JsBinaryDescription.Arg>,
     ImplicitDepsInferringDescription<JsBinaryDescription.Arg> {
 
-  private static final BuildRuleType TYPE = BuildRuleType.of("js_binary");
   private final JavascriptConfig config;
 
   public JsBinaryDescription(JavascriptConfig config) {
     this.config = config;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -61,10 +55,12 @@ public class JsBinaryDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(finder);
     return new JsBinary(
         params,
-        new SourcePathResolver(resolver),
-        config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
+        pathResolver,
+        config.getClosureCompiler(args.compiler, pathResolver, finder),
         params.getDeclaredDeps().get(),
         args.srcs,
         args.defines,

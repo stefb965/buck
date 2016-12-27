@@ -16,8 +16,8 @@
 
 package com.facebook.buck.ocaml;
 
-import static com.facebook.buck.ocaml.OCamlRuleBuilder.createOCamlLinkTarget;
-import static com.facebook.buck.ocaml.OCamlRuleBuilder.createStaticLibraryBuildTarget;
+import static com.facebook.buck.ocaml.OcamlRuleBuilder.createOcamlLinkTarget;
+import static com.facebook.buck.ocaml.OcamlRuleBuilder.createStaticLibraryBuildTarget;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -31,7 +31,6 @@ import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxSourceRuleFactoryHelper;
 import com.facebook.buck.cxx.HeaderVisibility;
@@ -65,7 +64,7 @@ public class OCamlIntegrationTest {
   public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
-  public void checkOCamlIsConfigured() throws IOException {
+  public void checkOcamlIsConfigured() throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
         this, "ocaml", tmp);
     workspace.setUp();
@@ -82,15 +81,16 @@ public class OCamlIntegrationTest {
         ImmutableMap.copyOf(System.getenv()),
         new DefaultCellPathResolver(filesystem.getRootPath(), rawConfig));
 
-    OCamlBuckConfig oCamlBuckConfig = new OCamlBuckConfig(
+    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(
         Platform.detect(),
+        filesystem,
         buckConfig);
 
-    assumeTrue(oCamlBuckConfig.getOCamlCompiler().isPresent());
-    assumeTrue(oCamlBuckConfig.getOCamlBytecodeCompiler().isPresent());
-    assumeTrue(oCamlBuckConfig.getOCamlDepTool().isPresent());
-    assumeTrue(oCamlBuckConfig.getYaccCompiler().isPresent());
-    assumeTrue(oCamlBuckConfig.getLexCompiler().isPresent());
+    assumeTrue(ocamlBuckConfig.getOcamlCompiler().isPresent());
+    assumeTrue(ocamlBuckConfig.getOcamlBytecodeCompiler().isPresent());
+    assumeTrue(ocamlBuckConfig.getOcamlDepTool().isPresent());
+    assumeTrue(ocamlBuckConfig.getYaccCompiler().isPresent());
+    assumeTrue(ocamlBuckConfig.getLexCompiler().isPresent());
   }
 
   @Test
@@ -102,7 +102,7 @@ public class OCamlIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance(
         workspace.getDestPath(),
         "//hello_ocaml:hello_ocaml");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
     BuildTarget lib = BuildTargetFactory.newInstance(
         workspace.getDestPath(),
         "//hello_ocaml:ocamllib");
@@ -195,7 +195,7 @@ public class OCamlIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//calc:calc");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
 
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(target, binary);
 
@@ -247,7 +247,7 @@ public class OCamlIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//ctest:ctest");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(target, binary);
 
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
@@ -336,8 +336,8 @@ public class OCamlIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance(
         workspace.getDestPath(),
         "//ocaml_ext_bc:ocaml_ext");
-    BuildTarget binary = createOCamlLinkTarget(target);
-    BuildTarget bytecode = OCamlBuildRulesGenerator.addBytecodeFlavor(binary);
+    BuildTarget binary = createOcamlLinkTarget(target);
+    BuildTarget bytecode = OcamlBuildRulesGenerator.addBytecodeFlavor(binary);
     BuildTarget libplus = BuildTargetFactory.newInstance(
         workspace.getDestPath(),
         "//ocaml_ext_bc:plus");
@@ -364,8 +364,8 @@ public class OCamlIntegrationTest {
       BuildTarget target = BuildTargetFactory.newInstance(
           workspace.getDestPath(),
           "//ocaml_ext_mac:ocaml_ext");
-      BuildTarget binary = createOCamlLinkTarget(target);
-      BuildTarget bytecode = OCamlBuildRulesGenerator.addBytecodeFlavor(binary);
+      BuildTarget binary = createOcamlLinkTarget(target);
+      BuildTarget bytecode = OcamlBuildRulesGenerator.addBytecodeFlavor(binary);
       BuildTarget libplus = BuildTargetFactory.newInstance(
           workspace.getDestPath(),
           "//ocaml_ext_mac:plus");
@@ -413,7 +413,7 @@ public class OCamlIntegrationTest {
     workspace.setUp();
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//clib:clib");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
     BuildTarget libplus = BuildTargetFactory.newInstance(workspace.getDestPath(), "//clib:plus");
     BuildTarget libplusStatic = createStaticLibraryBuildTarget(libplus);
     BuildTarget cclib = BuildTargetFactory.newInstance(workspace.getDestPath(), "//clib:cc");
@@ -430,8 +430,6 @@ public class OCamlIntegrationTest {
             cxxPlatform.getFlavor(),
             CxxSourceRuleFactory.PicType.PDC);
     String sourceName = "cc/cc.cpp";
-    BuildTarget ppObj =
-        cxxSourceRuleFactory.createPreprocessBuildTarget(sourceName, CxxSource.Type.CXX);
     BuildTarget ccObj = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
     BuildTarget headerSymlinkTreeTarget =
         CxxDescriptionEnhancer.createHeaderSymlinkTreeTarget(
@@ -452,7 +450,6 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
-    buildLog.assertTargetBuiltLocally(ppObj.toString());
     buildLog.assertTargetBuiltLocally(headerSymlinkTreeTarget.toString());
     buildLog.assertTargetBuiltLocally(exportedHeaderSymlinkTreeTarget.toString());
 
@@ -472,7 +469,6 @@ public class OCamlIntegrationTest {
     buildLog.assertTargetBuiltLocally(libplusStatic.toString());
     buildLog.assertTargetBuiltLocally(cclibbin.toString());
     buildLog.assertTargetBuiltLocally(ccObj.toString());
-    buildLog.assertTargetBuiltLocally(ppObj.toString());
   }
 
   @Test
@@ -485,7 +481,7 @@ public class OCamlIntegrationTest {
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(),
         "//:unused_var");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
 
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(target, binary);
 
@@ -521,7 +517,7 @@ public class OCamlIntegrationTest {
 
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(),
         "//:test");
-    BuildTarget binary = createOCamlLinkTarget(target);
+    BuildTarget binary = createOcamlLinkTarget(target);
 
     ImmutableSet<BuildTarget> targets = ImmutableSet.of(target, binary);
 

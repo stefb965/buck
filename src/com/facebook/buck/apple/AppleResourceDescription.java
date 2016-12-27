@@ -22,11 +22,11 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSet;
@@ -38,12 +38,6 @@ import java.util.Set;
  */
 public class AppleResourceDescription implements Description<AppleResourceDescription.Arg>,
     Flavored {
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_resource");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -56,7 +50,7 @@ public class AppleResourceDescription implements Description<AppleResourceDescri
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    return new NoopBuildRule(params, new SourcePathResolver(resolver));
+    return new NoopBuildRule(params, new SourcePathResolver(new SourcePathRuleFinder(resolver)));
   }
 
   @Override

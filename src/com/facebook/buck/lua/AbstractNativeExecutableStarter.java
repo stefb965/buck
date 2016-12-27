@@ -44,6 +44,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.WriteStringTemplateRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -80,6 +81,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
   abstract BuildRuleParams getBaseParams();
   abstract BuildRuleResolver getRuleResolver();
   abstract SourcePathResolver getPathResolver();
+  abstract SourcePathRuleFinder getRuleFinder();
   abstract LuaConfig getLuaConfig();
   abstract CxxBuckConfig getCxxBuckConfig();
   abstract CxxPlatform getCxxPlatform();
@@ -133,6 +135,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
           WriteStringTemplateRule.from(
               getBaseParams(),
               getPathResolver(),
+              getRuleFinder(),
               target,
               output,
               new BuildTargetSourcePath(templateTarget),
@@ -191,6 +194,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
             getBaseParams(),
             getRuleResolver(),
             getPathResolver(),
+            getRuleFinder(),
             getCxxBuckConfig(),
             getCxxPlatform(),
             ImmutableList.<CxxPreprocessorInput>builder()
@@ -206,7 +210,6 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
                 .build(),
             ImmutableMultimap.of(),
             Optional.empty(),
-            getCxxBuckConfig().getPreprocessMode(),
             ImmutableMap.of("native-starter.cpp", getNativeStarterCxxSource()),
             CxxSourceRuleFactory.PicType.PDC,
             Optional.empty());
@@ -227,6 +230,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
 
   @Override
   public SourcePath build() throws NoSuchBuildTargetException {
+    BuildTarget linkTarget = getTarget();
     getRuleResolver().addToIndex(
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
             getCxxBuckConfig(),
@@ -234,7 +238,8 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
             getBaseParams(),
             getRuleResolver(),
             getPathResolver(),
-            getTarget(),
+            getRuleFinder(),
+            linkTarget,
             Linker.LinkType.EXECUTABLE,
             Optional.empty(),
             getOutput(),
@@ -244,7 +249,7 @@ abstract class AbstractNativeExecutableStarter implements Starter, NativeLinkTar
             Optional.empty(),
             ImmutableSet.of(),
             getNativeLinkableInput()));
-    return new BuildTargetSourcePath(getTarget());
+    return new BuildTargetSourcePath(linkTarget);
   }
 
   @Override

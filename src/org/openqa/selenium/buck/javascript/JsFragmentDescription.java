@@ -23,12 +23,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableList;
@@ -41,16 +41,10 @@ public class JsFragmentDescription implements
     Description<JsFragmentDescription.Arg>,
     ImplicitDepsInferringDescription<JsFragmentDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("js_fragment");
   private final JavascriptConfig config;
 
   public JsFragmentDescription(JavascriptConfig config) {
     this.config = config;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -64,10 +58,12 @@ public class JsFragmentDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(finder);
     return new JsFragment(
         params,
-        new SourcePathResolver(resolver),
-        config.getClosureCompiler(args.compiler, new SourcePathResolver(resolver)),
+        pathResolver,
+        config.getClosureCompiler(args.compiler, pathResolver, finder),
         params.getDeps(),
         args.module,
         args.function,

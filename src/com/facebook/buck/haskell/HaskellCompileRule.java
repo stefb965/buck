@@ -34,6 +34,7 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
@@ -63,6 +64,8 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
 
   @AddToRuleKey
   private final Tool compiler;
+
+  private final HaskellVersion haskellVersion;
 
   @AddToRuleKey
   private final ImmutableList<String> flags;
@@ -109,6 +112,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
       BuildRuleParams buildRuleParams,
       SourcePathResolver resolver,
       Tool compiler,
+      HaskellVersion haskellVersion,
       ImmutableList<String> flags,
       PreprocessorFlags ppFlags,
       CxxPlatform cxxPlatform,
@@ -122,6 +126,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
       Preprocessor preprocessor) {
     super(buildRuleParams, resolver);
     this.compiler = compiler;
+    this.haskellVersion = haskellVersion;
     this.flags = flags;
     this.ppFlags = ppFlags;
     this.cxxPlatform = cxxPlatform;
@@ -138,8 +143,10 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
   public static HaskellCompileRule from(
       BuildTarget target,
       BuildRuleParams baseParams,
+      SourcePathRuleFinder ruleFinder,
       final SourcePathResolver resolver,
       final Tool compiler,
+      HaskellVersion haskellVersion,
       ImmutableList<String> flags,
       final PreprocessorFlags ppFlags,
       CxxPlatform cxxPlatform,
@@ -156,19 +163,20 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
             target,
             Suppliers.memoize(
                 () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(compiler.getDeps(resolver))
-                    .addAll(ppFlags.getDeps(resolver))
-                    .addAll(resolver.filterBuildRuleInputs(includes))
-                    .addAll(sources.getDeps(resolver))
+                    .addAll(compiler.getDeps(ruleFinder))
+                    .addAll(ppFlags.getDeps(ruleFinder))
+                    .addAll(ruleFinder.filterBuildRuleInputs(includes))
+                    .addAll(sources.getDeps(ruleFinder))
                     .addAll(
                         Stream.of(exposedPackages, packages)
                             .flatMap(packageMap -> packageMap.values().stream())
-                            .flatMap(pkg -> pkg.getDeps(resolver))
+                            .flatMap(pkg -> pkg.getDeps(ruleFinder))
                             .iterator())
                     .build()),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         resolver,
         compiler,
+        haskellVersion,
         flags,
         ppFlags,
         cxxPlatform,
@@ -208,9 +216,13 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
   private Iterable<String> getPackageNameArgs() {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     if (packageInfo.isPresent()) {
-      builder.add(
-          "-package-name",
-          packageInfo.get().getName() + '-' + packageInfo.get().getVersion());
+      if (haskellVersion.getMajorVersion() >= 8) {
+        builder.add("-package-name", packageInfo.get().getName());
+      } else {
+        builder.add(
+            "-package-name",
+            packageInfo.get().getName() + '-' + packageInfo.get().getVersion());
+      }
     }
     return builder.build();
   }
@@ -264,7 +276,8 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
             getResolver(),
             Functions.identity(),
             CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, getResolver()),
-            preprocessor);
+            preprocessor,
+            /*pch*/ Optional.empty());
     return MoreIterables.zipAndConcat(
         Iterables.cycle("-optP"),
         cxxToolFlags.getAllFlags());
@@ -287,7 +300,7 @@ public class HaskellCompileRule extends AbstractBuildRule implements RuleKeyAppe
           public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
             return ImmutableMap.<String, String>builder()
                 .putAll(super.getEnvironmentVariables(context))
-                .putAll(compiler.getEnvironment(getResolver()))
+                .putAll(compiler.getEnvironment())
                 .build();
           }
 

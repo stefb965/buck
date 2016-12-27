@@ -17,7 +17,9 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.CellConfig;
+import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.LogConfigSetup;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -26,6 +28,7 @@ import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.RelativeCellName;
+import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
@@ -33,6 +36,8 @@ import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.versioncontrol.BuildStamper;
 import com.facebook.buck.util.versioncontrol.DefaultVersionControlCmdLineInterfaceFactory;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
+import com.facebook.buck.versions.VersionBuckConfig;
+import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -46,6 +51,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ForkJoinPool;
 
 import javax.annotation.Nullable;
 
@@ -102,16 +108,17 @@ public abstract class AbstractCommand implements Command {
         cellName = RelativeCellName.of(ImmutableSet.of(key.get(0)));
         configKey = key.get(1);
       }
-      key = Splitter.on('.').limit(2).splitToList(configKey);
+      int separatorIndex = configKey.lastIndexOf('.');
+      if (separatorIndex < 0 || separatorIndex == configKey.length() - 1) {
+        throw new HumanReadableException(
+            "Invalid config override \"%s=%s\" Expected <section>.<field>=<value>.",
+            configKey,
+            entry.getValue());
+      }
       String value = entry.getValue();
+      // If the value is empty, un-set the config
       if (value == null) {
         value = "";
-      }
-      if (key.size() != 2) {
-        throw new HumanReadableException(
-            "Invalid config override \"%s=%s\".  Expected \"<section>.<field>=<value>\".",
-            entry.getKey(),
-            value);
       }
 
       // Overrides for locations of transitive children of cells are weird as the order of overrides
@@ -120,14 +127,14 @@ public abstract class AbstractCommand implements Command {
       // but the second override wants to change its identity).
       // It's generally a better idea to use the .buckconfig.local mechanism when overriding
       // repositories anyway, so here we simply disallow them.
-      String section = key.get(0);
+      String section = configKey.substring(0, separatorIndex);
       if (section.equals("repositories")) {
         throw new HumanReadableException("Overriding repository locations from the command line " +
             "is not supported. Please place a .buckconfig.local in the appropriate location and " +
             "use that instead.");
       }
-
-      builder.put(cellName, section, key.get(1), value);
+      String field = configKey.substring(separatorIndex + 1);
+      builder.put(cellName, section, field, value);
     }
     if (numThreads != null) {
       builder.put(CellConfig.ALL_CELLS_OVERRIDE, "build", "threads", String.valueOf(numThreads));
@@ -223,7 +230,7 @@ public abstract class AbstractCommand implements Command {
             config,
             new BuildTargetPatternTargetNodeParser());
     for (String arg : targetsAsArgs) {
-      specs.add(parser.parse(config.getCellPathResolver(), arg));
+      specs.addAll(parser.parse(config.getCellPathResolver(), arg));
     }
     return specs.build();
   }
@@ -268,6 +275,7 @@ public abstract class AbstractCommand implements Command {
                 new PrintStreamProcessExecutorFactory(),
                 new VersionControlBuckConfig(params.getBuckConfig().getRawConfig()),
                 params.getEnvironment())))
+        .setCellPathResolver(params.getCell().getCellPathResolver())
         .build();
   }
 
@@ -318,4 +326,22 @@ public abstract class AbstractCommand implements Command {
     return false;
   }
 
+  TargetGraphAndBuildTargets toVersionedTargetGraph(
+      CommandRunnerParams params,
+      TargetGraphAndBuildTargets targetGraphAndBuildTargets)
+      throws VersionException, InterruptedException {
+    return params.getVersionedTargetGraphCache().getVersionedTargetGraph(
+        params.getBuckEventBus(),
+        targetGraphAndBuildTargets,
+        new VersionBuckConfig(params.getBuckConfig()).getVersionUniverses(),
+        new ForkJoinPool(params.getBuckConfig().getNumThreads()))
+        .getTargetGraphAndBuildTargets();
+  }
+
+  @Override
+  public Iterable<BuckEventListener> getEventListeners(
+      Path logDirectoryPath,
+      ProjectFilesystem filesystem) {
+    return ImmutableList.of();
+  }
 }

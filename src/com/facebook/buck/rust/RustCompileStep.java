@@ -18,7 +18,7 @@ package com.facebook.buck.rust;
 
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
-import com.google.common.base.Joiner;
+import com.facebook.buck.util.Verbosity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -68,17 +68,17 @@ public class RustCompileStep extends ShellStep {
     ImmutableList.Builder<String> commandBuilder = ImmutableList.<String>builder()
         .addAll(compilerCommandPrefix);
 
-    ImmutableList.Builder<String> argsbuilder = ImmutableList.builder();
+    // Do colour stuff first so that it can be overridden.
+    if (context.getAnsi().isAnsiTerminal()) {
+      commandBuilder.add("--color=always");
+    }
 
     if (linkerArgs.size() > 0) {
       commandBuilder.add("-C", String.format("linker=%s", linkerArgs.get(0)));
 
-      argsbuilder.addAll(linkerArgs.subList(1, linkerArgs.size()));
-    }
-
-    ImmutableList<String> args = argsbuilder.build();
-    if (args.size() > 0) {
-      commandBuilder.add("-C", String.format("link-args=%s", Joiner.on(' ').join(args)));
+      for (String arg: linkerArgs.subList(1, linkerArgs.size())) {
+        commandBuilder.add("-C", String.format("link-arg=%s", arg));
+      }
     }
 
     commandBuilder
@@ -101,15 +101,25 @@ public class RustCompileStep extends ShellStep {
           String.format("dependency=%s", path));
     }
 
-    for (Path path : nativeDeps) {
+    for (Path dir : nativeDeps) {
       commandBuilder.add(
           "-L",
-          String.format("native=%s", path.getParent()));
+          String.format("native=%s", dir));
     }
 
     return commandBuilder
         .add(crateRoot.toString())
         .build();
+  }
+
+  /*
+   * Make sure all stderr output from rustc is emitted, since its either a warning or an error.
+   * In general Rust code should have zero warnings, or all warnings as errors. Regardless,
+   * respect requests for silence.
+   */
+  @Override
+  protected boolean shouldPrintStderr(Verbosity verbosity) {
+    return !verbosity.isSilent();
   }
 
   @Override

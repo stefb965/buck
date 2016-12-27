@@ -98,4 +98,12 @@ interface AbstractCxxPlatform extends FlavorConvertible {
    */
   ImmutableMap<String, String> getFlagMacros();
 
+  /**
+   * @return a factory used to generated shared library interfaces, which are used for linking in
+   *         liu of the original shared library.
+   */
+  Optional<SharedLibraryInterfaceFactory> getSharedLibraryInterfaceFactory();
+
+  Optional<String> getBinaryExtension();
+
 }

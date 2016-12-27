@@ -39,6 +39,8 @@ import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.WorkerProcessPool;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
@@ -147,6 +149,7 @@ public class Build implements Closeable {
         .setTargetDeviceOptions(targetDeviceOptions)
         .setExecutors(executors)
         .setBuildStamper(stamper)
+        .setCellPathResolver(rootCell.getCellPathResolver())
         .build();
     this.artifactCache = artifactCache;
     this.buildEngine = buildEngine;
@@ -228,6 +231,7 @@ public class Build implements Closeable {
     BuildEngineBuildContext buildContext = BuildEngineBuildContext.builder()
         .setBuildContext(BuildContext.builder()
             .setActionGraph(actionGraph)
+            .setSourcePathResolver(new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)))
             .setJavaPackageFinder(javaPackageFinder)
             .setEventBus(executionContext.getBuckEventBus())
             .setAndroidPlatformTargetSupplier(executionContext.getAndroidPlatformTargetSupplier())

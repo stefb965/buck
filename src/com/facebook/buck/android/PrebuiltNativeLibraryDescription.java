@@ -20,10 +20,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
@@ -38,13 +38,6 @@ import java.util.Optional;
 
 public class PrebuiltNativeLibraryDescription
     implements Description<PrebuiltNativeLibraryDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_native_library");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -69,7 +62,7 @@ public class PrebuiltNativeLibraryDescription
 
     return new PrebuiltNativeLibrary(
         params,
-        new SourcePathResolver(resolver),
+        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
         args.nativeLibs,
         args.isAsset.orElse(false),
         librarySources

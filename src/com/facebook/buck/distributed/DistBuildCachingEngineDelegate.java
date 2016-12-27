@@ -21,7 +21,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -37,10 +38,11 @@ import javax.annotation.Nonnull;
  */
 public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegate {
   private final LoadingCache<ProjectFilesystem, FileHashCache> fileHashCacheLoader;
-  private final LoadingCache<ProjectFilesystem, DefaultRuleKeyBuilderFactory> ruleKeyFactories;
+  private final LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory> ruleKeyFactories;
 
   public DistBuildCachingEngineDelegate(
       SourcePathResolver sourcePathResolver,
+      SourcePathRuleFinder ruleFinder,
       final DistBuildState remoteState,
       final LoadingCache<ProjectFilesystem, ? extends FileHashLoader> fileHashLoaders) {
     this.fileHashCacheLoader = CacheBuilder.newBuilder()
@@ -52,6 +54,7 @@ public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegat
         });
     ruleKeyFactories = DistBuildFileHashes.createRuleKeyFactories(
         sourcePathResolver,
+        ruleFinder,
         fileHashLoaders,
         /* keySeed */ 0);
   }

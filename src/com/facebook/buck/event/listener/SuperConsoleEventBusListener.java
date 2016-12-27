@@ -54,7 +54,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -70,7 +70,6 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,9 +123,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   private final TestResultFormatter testFormatter;
 
-  private final AtomicInteger testPasses = new AtomicInteger(0);
-  private final AtomicInteger testFailures = new AtomicInteger(0);
-  private final AtomicInteger testSkips = new AtomicInteger(0);
+  private final AtomicInteger numPassingTests = new AtomicInteger(0);
+  private final AtomicInteger numFailingTests = new AtomicInteger(0);
+  private final AtomicInteger numExcludedTests = new AtomicInteger(0);
+  private final AtomicInteger numDisabledTests = new AtomicInteger(0);
+  private final AtomicInteger numAssumptionViolationTests = new AtomicInteger(0);
+  private final AtomicInteger numDryRunTests = new AtomicInteger(0);
 
   private final AtomicReference<TestRunEvent.Started> testRunStarted;
   private final AtomicReference<TestRunEvent.Finished> testRunFinished;
@@ -303,6 +305,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         getEstimatedProgressOfGeneratingProjectFiles(),
         lines);
 
+    logEventPair(
+        "REFRESHING SPARSE CHECKOUT",
+        /* suffix */ Optional.empty(),
+        currentTimeMillis,
+        /* offsetMs */ 0L,
+        autoSparseStateSparseRefreshStarted,
+        autoSparseStateSparseRefreshFinished,
+        /* progress*/ Optional.empty(),
+        lines);
+
     // If parsing has not finished, then there is no build rule information to print yet.
     if (parseTime != UNFINISHED_EVENT_PAIR) {
       lines.add(getNetworkStatsLine(buildFinished));
@@ -346,22 +358,19 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         if (port.isPresent()) {
           buildTrace = String.format(
               locale,
-              "Details: http://localhost:%s/trace/%s",
+              "    Details: http://localhost:%s/trace/%s",
               port.get(),
               buildFinished.getBuildId());
         }
       }
 
-
       if (buildStarted == null) {
         // All steps past this point require a build.
         return lines.build();
       }
-      String suffix = Joiner.on(" ")
-          .join(FluentIterable.of(new String[] {jobSummary, buildTrace})
-              .filter(Objects::nonNull));
+
       Optional<String> suffixOptional =
-          suffix.isEmpty() ? Optional.empty() : Optional.of(suffix);
+          Strings.isNullOrEmpty(jobSummary) ? Optional.empty() : Optional.of(jobSummary);
       // Check to see if the build encompasses the time spent parsing. This is true for runs of
       // buck build but not so for runs of e.g. buck project. If so, subtract parse times
       // from the build time.
@@ -383,6 +392,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
           this.buildFinished,
           getApproximateBuildProgress(),
           lines);
+
+      if (buildTrace != null) {
+        lines.add(buildTrace);
+      }
 
       int maxThreadLines = defaultThreadLineLimit;
       if (anyWarningsPrinted.get() && threadLineLimitOnWarning < maxThreadLines) {
@@ -583,9 +596,13 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   }
 
   private Optional<String> renderTestSuffix() {
-    int testPassesVal = testPasses.get();
-    int testFailuresVal = testFailures.get();
-    int testSkipsVal = testSkips.get();
+    int testPassesVal = numPassingTests.get();
+    int testFailuresVal = numFailingTests.get();
+    int testSkipsVal =
+        numDisabledTests.get() +
+        numAssumptionViolationTests.get() +
+        // don't count: numExcludedTests.get() +
+        numDryRunTests.get();
     if (testSkipsVal > 0) {
       return Optional.of(
           String.format(
@@ -762,10 +779,10 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     ResultType resultType = testResult.getType();
     switch (resultType) {
       case SUCCESS:
-        testPasses.incrementAndGet();
+        numPassingTests.incrementAndGet();
         break;
       case FAILURE:
-        testFailures.incrementAndGet();
+        numFailingTests.incrementAndGet();
         // We don't use TestResultFormatter.reportResultSummary() here since that also
         // includes the stack trace and stdout/stderr.
         logEvents.add(
@@ -779,13 +796,16 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
                     testResult.getMessage())));
         break;
       case ASSUMPTION_VIOLATION:
-        testSkips.incrementAndGet();
+        numAssumptionViolationTests.incrementAndGet();
         break;
       case DISABLED:
+        numDisabledTests.incrementAndGet();
         break;
       case DRY_RUN:
+        numDryRunTests.incrementAndGet();
         break;
       case EXCLUDED:
+        numExcludedTests.incrementAndGet();
         break;
     }
   }
@@ -866,8 +886,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @Override
   public synchronized void close() throws IOException {
+    super.close();
     stopRenderScheduler();
-    networkStatsKeeper.stopScheduler();
     render(); // Ensure final frame is rendered.
   }
 }

@@ -31,6 +31,7 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.timing.FakeClock;
@@ -66,8 +67,8 @@ public class MiniAaptTest {
 
   private final FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
   private final SourcePathResolver resolver =
-      new SourcePathResolver(
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+      new SourcePathResolver(new SourcePathRuleFinder(
+          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
   @Rule
   public ExpectedException thrown = ExpectedException.none();
@@ -289,7 +290,33 @@ public class MiniAaptTest {
         definitions,
         IsEqual.equalToObject(
             ImmutableSet.<RDotTxtEntry>of(
-                new FakeRDotTxtEntry(IdType.INT, RType.DRAWABLE, "custom_drawable", true))));
+                new FakeRDotTxtEntry(IdType.INT, RType.DRAWABLE, "custom_drawable",
+                    RDotTxtEntry.CustomDrawableType.CUSTOM))));
+  }
+
+  @Test
+  public void testParsingGrayscaleImage() throws IOException, ResourceParseException {
+    ImmutableList<String> lines = ImmutableList.<String>builder().add("").build();
+    filesystem.writeLinesToPath(lines, Paths.get("fbui_tomato.png"));
+
+    MiniAapt aapt = new MiniAapt(
+        resolver,
+        filesystem,
+        new FakeSourcePath(filesystem, "res"),
+        Paths.get("R.txt"),
+        ImmutableSet.of(),
+        /* resourceUnion */ false,
+        /* isGrayscaleImageProcessingEnabled */ true);
+    aapt.processDrawables(filesystem, Paths.get("fbui_tomato.g.png"));
+
+    Set<RDotTxtEntry> definitions = aapt.getResourceCollector().getResources();
+
+    assertThat(
+        definitions,
+        IsEqual.equalToObject(
+            ImmutableSet.<RDotTxtEntry>of(
+                new FakeRDotTxtEntry(IdType.INT, RType.DRAWABLE, "fbui_tomato",
+                    RDotTxtEntry.CustomDrawableType.GRAYSCALE_IMAGE))));
   }
 
   @Test(expected = ResourceParseException.class)
@@ -577,7 +604,8 @@ public class MiniAaptTest {
         new FakeSourcePath(filesystem, "res"),
         Paths.get("R.txt"),
         ImmutableSet.of(depRTxt),
-        true);
+        /* resourceUnion */ true,
+        /* isGrayscaleImageProcessingEnabled */ false);
     aapt.processValuesFile(filesystem, Paths.get("values.xml"));
     aapt.resourceUnion();
 

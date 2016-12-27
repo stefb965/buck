@@ -28,6 +28,7 @@ import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 
 import org.hamcrest.Matchers;
@@ -54,7 +55,7 @@ public class VersionedTargetGraphBuilderTest {
         ImmutableSortedMap.of(BuildTargetFactory.newInstance(dep), Version.of(version)));
   }
 
-  private static void assertEquals(TargetNode<?> expected, TargetNode<?> actual) {
+  private static void assertEquals(TargetNode<?, ?> expected, TargetNode<?, ?> actual) {
     assertThat(
         actual.getBuildTarget(),
         Matchers.equalTo(expected.getBuildTarget()));
@@ -84,19 +85,19 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   private static void assertEquals(TargetGraph expected, TargetGraph actual) {
-    ImmutableMap<BuildTarget, TargetNode<?>> expectedNodes =
+    ImmutableMap<BuildTarget, TargetNode<?, ?>> expectedNodes =
         Maps.uniqueIndex(expected.getNodes(), HasBuildTarget::getBuildTarget);
-    ImmutableMap<BuildTarget, TargetNode<?>> actualNodes =
+    ImmutableMap<BuildTarget, TargetNode<?, ?>> actualNodes =
         Maps.uniqueIndex(actual.getNodes(), HasBuildTarget::getBuildTarget);
     assertThat(actualNodes.keySet(), Matchers.equalTo(expectedNodes.keySet()));
-    for (Map.Entry<BuildTarget, TargetNode<?>> ent : expectedNodes.entrySet()) {
+    for (Map.Entry<BuildTarget, TargetNode<?, ?>> ent : expectedNodes.entrySet()) {
       assertEquals(ent.getValue(), actualNodes.get(ent.getKey()));
     }
   }
 
   @Test
   public void singleRootNode() throws Exception {
-    TargetNode<?> root = new VersionRootBuilder("//:root").build();
+    TargetNode<?, ?> root = new VersionRootBuilder("//:root").build();
     TargetGraph graph = TargetGraphFactory.newInstance(root);
     VersionedTargetGraphBuilder builder =
         new VersionedTargetGraphBuilder(
@@ -335,6 +336,59 @@ public class VersionedTargetGraphBuilderTest {
                 .setVersionedDeps("//:v2", ExactConstraint.of(Version.of("2.0")))
                 .build());
     assertEquals(expectedTargetGraph, versionedGraph);
+  }
+
+  @Test
+  public void explicitNonRootTreatedAsRoot() throws Exception {
+    TargetGraph graph =
+        TargetGraphFactory.newInstance(
+            new VersionPropagatorBuilder("//:dep")
+                .build(),
+            new VersionedAliasBuilder("//:versioned")
+                .setVersions("1.0", "//:dep")
+                .build(),
+            new VersionPropagatorBuilder("//:root")
+                .setDeps("//:versioned")
+                .build());
+    VersionedTargetGraphBuilder builder =
+        new VersionedTargetGraphBuilder(
+            POOL,
+            new NaiveVersionSelector(),
+            TargetGraphAndBuildTargets.of(
+                graph,
+                ImmutableSet.of(BuildTargetFactory.newInstance("//:root"))));
+    TargetGraph versionedGraph = builder.build();
+    TargetGraph expectedTargetGraph =
+        TargetGraphFactory.newInstance(
+            new VersionPropagatorBuilder("//:dep")
+                .build(),
+            new VersionPropagatorBuilder("//:root")
+                .setDeps("//:dep")
+                .build());
+    assertEquals(expectedTargetGraph, versionedGraph);
+  }
+
+  @Test
+  public void nodeWithTestParameterReferringToNonExistentTarget() throws Exception {
+    TargetGraph graph =
+        TargetGraphFactory.newInstance(
+            new VersionPropagatorBuilder("//:root2")
+                .setTests(ImmutableSortedSet.of(BuildTargetFactory.newInstance("//:test")))
+                .build(),
+            new VersionRootBuilder("//:root1")
+                .setDeps("//:root2")
+                .build());
+    VersionedTargetGraphBuilder builder =
+        new VersionedTargetGraphBuilder(
+            POOL,
+            new NaiveVersionSelector(),
+            TargetGraphAndBuildTargets.of(
+                graph,
+                ImmutableSet.of(
+                    BuildTargetFactory.newInstance("//:root1"),
+                    BuildTargetFactory.newInstance("//:root2"))));
+    TargetGraph versionedGraph = builder.build();
+    assertEquals(graph, versionedGraph);
   }
 
 }

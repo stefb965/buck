@@ -33,8 +33,10 @@ import com.facebook.buck.cxx.LinkerProvider;
 import com.facebook.buck.cxx.Linkers;
 import com.facebook.buck.cxx.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.PosixNmSymbolNameTool;
+import com.facebook.buck.cxx.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.ImmutableFlavor;
 import com.facebook.buck.rules.ConstantToolProvider;
@@ -46,6 +48,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableBiMap;
@@ -80,6 +83,7 @@ public class AppleCxxPlatforms {
   private static final Path USR_BIN = Paths.get("usr/bin");
 
   public static AppleCxxPlatform build(
+      ProjectFilesystem filesystem,
       AppleSdk targetSdk,
       String minVersion,
       String targetArchitecture,
@@ -89,6 +93,7 @@ public class AppleCxxPlatforms {
       Optional<ProcessExecutor> processExecutor,
       Optional<AppleToolchain> swiftToolChain) {
     return buildWithExecutableChecker(
+        filesystem,
         targetSdk,
         minVersion,
         targetArchitecture,
@@ -102,6 +107,7 @@ public class AppleCxxPlatforms {
 
   @VisibleForTesting
   static AppleCxxPlatform buildWithExecutableChecker(
+      ProjectFilesystem filesystem,
       AppleSdk targetSdk,
       String minVersion,
       String targetArchitecture,
@@ -288,11 +294,13 @@ public class AppleCxxPlatforms {
       sanitizerPaths.put(sdkPaths.getDeveloperPath().get(), Paths.get("APPLE_DEVELOPER_DIR"));
     }
 
-    DebugPathSanitizer compilerDebugPathSanitizer = new MungingDebugPathSanitizer(
+    DebugPathSanitizer compilerDebugPathSanitizer = new PrefixMapDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
         Paths.get("."),
-        sanitizerPaths.build());
+        sanitizerPaths.build(),
+        filesystem.getRootPath().toAbsolutePath(),
+        CxxToolProvider.Type.CLANG);
     DebugPathSanitizer assemblerDebugPathSanitizer = new MungingDebugPathSanitizer(
         config.getDebugPathSanitizerLimit(),
         File.separatorChar,
@@ -364,6 +372,7 @@ public class AppleCxxPlatforms {
 
     CxxPlatform cxxPlatform = CxxPlatforms.build(
         targetFlavor,
+        Platform.MACOS,
         config,
         as,
         aspp,
@@ -390,9 +399,10 @@ public class AppleCxxPlatforms {
         "%s.dylib",
         "a",
         "o",
-        Optional.of(compilerDebugPathSanitizer),
-        Optional.of(assemblerDebugPathSanitizer),
-        macros);
+        compilerDebugPathSanitizer,
+        assemblerDebugPathSanitizer,
+        macros,
+        Optional.empty());
 
     ApplePlatform applePlatform = targetSdk.getApplePlatform();
     ImmutableList.Builder<Path> swiftOverrideSearchPathBuilder = ImmutableList.builder();
@@ -422,6 +432,8 @@ public class AppleCxxPlatforms {
         .setActool(actool)
         .setIbtool(ibtool)
         .setMomc(momc)
+        .setCopySceneKitAssets(
+            getOptionalTool("copySceneKitAssets", toolSearchPaths, executableFinder, version))
         .setXctest(xctest)
         .setDsymutil(dsymutil)
         .setLipo(lipo)

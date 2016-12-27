@@ -33,19 +33,21 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import org.junit.Test;
 
+import java.util.Optional;
 import java.util.Set;
 
 public class AppleResourcesTest {
 
   @Test
   public void emptyInputHasEmptyResources() {
-    ImmutableSet<TargetNode<?>> graphNodes = ImmutableSet.of();
+    ImmutableSet<TargetNode<?, ?>> graphNodes = ImmutableSet.of();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(graphNodes);
-    ImmutableSet<TargetNode<AppleResourceDescription.Arg>> targetNodes = ImmutableSet.of();
+    ImmutableSet<TargetNode<AppleResourceDescription.Arg, ?>> targetNodes = ImmutableSet.of();
 
     assertThat(
         AppleResources.collectRecursiveResources(
             targetGraph,
+            null,
             targetNodes),
         empty());
   }
@@ -59,26 +61,27 @@ public class AppleResourcesTest {
         new FakeSourcePath("path/bb.lproj/Localizable.strings"),
         new FakeSourcePath("path/cc.lproj/Localizable.strings"));
 
-    TargetNode<AppleResourceDescription.Arg> resourceNode =
+    TargetNode<AppleResourceDescription.Arg, ?> resourceNode =
         AppleResourceBuilder.createBuilder(resourceTarget)
             .setFiles(ImmutableSet.of(new FakeSourcePath("foo.png")))
             .setDirs(ImmutableSet.of())
             .setVariants(variants)
             .build();
-    TargetNode<AppleLibraryDescription.Arg> libNode = AppleLibraryBuilder
+    TargetNode<AppleLibraryDescription.Arg, ?> libNode = AppleLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//foo:lib"))
         .setDeps(ImmutableSortedSet.of(resourceTarget))
         .build();
-    ImmutableSet<TargetNode<?>> graphNodes = ImmutableSet.of(
+    ImmutableSet<TargetNode<?, ?>> graphNodes = ImmutableSet.of(
         resourceNode,
         libNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(graphNodes);
-    ImmutableSet<TargetNode<AppleLibraryDescription.Arg>> targetNodes = ImmutableSet.of(
+    ImmutableSet<TargetNode<AppleLibraryDescription.Arg, ?>> targetNodes = ImmutableSet.of(
         libNode);
 
     assertThat(
         AppleResources.collectRecursiveResources(
             targetGraph,
+            Optional.empty(),
             targetNodes),
         hasItem(resourceNode.getConstructorArg()));
   }
@@ -86,38 +89,39 @@ public class AppleResourcesTest {
   @Test
   public void libWithTransitiveResourceDepReturnsAllResources() {
     BuildTarget fooResourceTarget = BuildTargetFactory.newInstance("//foo:resource");
-    TargetNode<AppleResourceDescription.Arg> fooResourceNode =
+    TargetNode<AppleResourceDescription.Arg, ?> fooResourceNode =
         AppleResourceBuilder.createBuilder(fooResourceTarget)
             .setFiles(ImmutableSet.of(new FakeSourcePath("foo.png")))
             .setDirs(ImmutableSet.of())
             .build();
     BuildTarget fooLibTarget = BuildTargetFactory.newInstance("//foo:lib");
-    TargetNode<AppleLibraryDescription.Arg> fooLibNode = AppleLibraryBuilder
+    TargetNode<AppleLibraryDescription.Arg, ?> fooLibNode = AppleLibraryBuilder
         .createBuilder(fooLibTarget)
         .setDeps(ImmutableSortedSet.of(fooResourceTarget))
         .build();
     BuildTarget barResourceTarget = BuildTargetFactory.newInstance("//bar:resource");
-    TargetNode<AppleResourceDescription.Arg> barResourceNode =
+    TargetNode<AppleResourceDescription.Arg, ?> barResourceNode =
         AppleResourceBuilder.createBuilder(barResourceTarget)
             .setFiles(ImmutableSet.of(new FakeSourcePath("bar.png")))
             .setDirs(ImmutableSet.of())
             .build();
-    TargetNode<AppleLibraryDescription.Arg> barLibNode = AppleLibraryBuilder
+    TargetNode<AppleLibraryDescription.Arg, ?> barLibNode = AppleLibraryBuilder
         .createBuilder(BuildTargetFactory.newInstance("//bar:lib"))
         .setDeps(ImmutableSortedSet.of(fooLibTarget, barResourceTarget))
         .build();
-    ImmutableSet<TargetNode<?>> graphNodes = ImmutableSet.of(
+    ImmutableSet<TargetNode<?, ?>> graphNodes = ImmutableSet.of(
         fooResourceNode,
         fooLibNode,
         barResourceNode,
         barLibNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(graphNodes);
-    ImmutableSet<TargetNode<AppleLibraryDescription.Arg>> targetNodes = ImmutableSet.of(
+    ImmutableSet<TargetNode<AppleLibraryDescription.Arg, ?>> targetNodes = ImmutableSet.of(
         barLibNode);
 
     assertThat(
         AppleResources.collectRecursiveResources(
             targetGraph,
+            Optional.empty(),
             targetNodes),
         hasItems(fooResourceNode.getConstructorArg(), barResourceNode.getConstructorArg()));
   }

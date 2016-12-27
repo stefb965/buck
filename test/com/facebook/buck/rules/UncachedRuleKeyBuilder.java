@@ -21,41 +21,45 @@ import com.google.common.base.Supplier;
 
 public class UncachedRuleKeyBuilder extends RuleKeyBuilder<RuleKey> {
 
-  private final RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory;
+  private final RuleKeyFactory<RuleKey> ruleKeyFactory;
   private final Supplier<UncachedRuleKeyBuilder> subKeySupplier;
 
   public UncachedRuleKeyBuilder(
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver resolver,
       FileHashCache hashCache,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory,
+      RuleKeyFactory<RuleKey> ruleKeyFactory,
       RuleKeyLogger ruleKeyLogger) {
-    super(resolver, hashCache, ruleKeyLogger);
-    this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
-    this.subKeySupplier = createSubKeySupplier(resolver, hashCache, ruleKeyBuilderFactory);
+    super(ruleFinder, resolver, hashCache, ruleKeyLogger);
+    this.ruleKeyFactory = ruleKeyFactory;
+    this.subKeySupplier = createSubKeySupplier(ruleFinder, resolver, hashCache, ruleKeyFactory);
   }
 
   public UncachedRuleKeyBuilder(
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver resolver,
       FileHashCache hashCache,
-      RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
-    super(resolver, hashCache);
-    this.ruleKeyBuilderFactory = ruleKeyBuilderFactory;
-    this.subKeySupplier = createSubKeySupplier(resolver, hashCache, ruleKeyBuilderFactory);
+      RuleKeyFactory<RuleKey> ruleKeyFactory) {
+    super(ruleFinder, resolver, hashCache);
+    this.ruleKeyFactory = ruleKeyFactory;
+    this.subKeySupplier = createSubKeySupplier(ruleFinder, resolver, hashCache, ruleKeyFactory);
   }
 
   private static Supplier<UncachedRuleKeyBuilder> createSubKeySupplier(
+      SourcePathRuleFinder ruleFinder,
       final SourcePathResolver resolver,
       final FileHashCache hashCache,
-      final RuleKeyBuilderFactory<RuleKey> ruleKeyBuilderFactory) {
+      final RuleKeyFactory<RuleKey> ruleKeyFactory) {
     return () -> new UncachedRuleKeyBuilder(
+        ruleFinder,
         resolver,
         hashCache,
-        ruleKeyBuilderFactory);
+        ruleKeyFactory);
   }
 
   @Override
   protected UncachedRuleKeyBuilder setBuildRule(BuildRule rule) {
-    setSingleValue(ruleKeyBuilderFactory.build(rule));
+    setSingleValue(ruleKeyFactory.build(rule));
     return this;
   }
 

@@ -40,6 +40,7 @@ import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.autosparse.AutoSparseStateEvents;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
@@ -92,6 +93,12 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   protected final Clock clock;
   protected final Ansi ansi;
   private final Locale locale;
+
+  @Nullable
+  protected volatile AutoSparseStateEvents.SparseRefreshStarted autoSparseStateSparseRefreshStarted;
+  @Nullable
+  protected volatile AutoSparseStateEvents.SparseRefreshFinished
+      autoSparseStateSparseRefreshFinished;
 
   @Nullable
   protected volatile ProjectBuildFileParseEvents.Started projectBuildFileParseStarted;
@@ -172,6 +179,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     this.actionGraphFinished = new ConcurrentLinkedDeque<>();
 
     this.buckFilesProcessing = new ConcurrentHashMap<>();
+
+    this.autoSparseStateSparseRefreshStarted = null;
+    this.autoSparseStateSparseRefreshFinished = null;
 
     this.buildStarted = null;
     this.buildFinished = null;
@@ -469,6 +479,24 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   @Subscribe
+  public void autoSparseStateSparseRefreshStarted(
+      AutoSparseStateEvents.SparseRefreshStarted started) {
+    // we may have to run multiple sparse refreshes (one per cell), at which point the previous
+    // end time is now invalid. Sparse refreshes are always sequentially run.
+    if (autoSparseStateSparseRefreshFinished != null &&
+        !started.isRelatedTo(autoSparseStateSparseRefreshFinished)) {
+      autoSparseStateSparseRefreshFinished = null;
+    }
+    autoSparseStateSparseRefreshStarted = started;
+  }
+
+  @Subscribe
+  public void autoSparseStateSparseRefreshFinished(
+      AutoSparseStateEvents.SparseRefreshFinished finished) {
+    autoSparseStateSparseRefreshFinished = finished;
+  }
+
+  @Subscribe
   public void projectBuildFileParseStarted(ProjectBuildFileParseEvents.Started started) {
     projectBuildFileParseStarted = started;
   }
@@ -729,5 +757,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Override
   public void close() throws IOException {
+    networkStatsKeeper.stopScheduler();
   }
 }

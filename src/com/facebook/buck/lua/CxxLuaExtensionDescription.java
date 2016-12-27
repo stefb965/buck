@@ -31,6 +31,7 @@ import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.HeaderSymlinkTree;
 import com.facebook.buck.cxx.HeaderVisibility;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkTargetMode;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkableInput;
@@ -43,17 +44,19 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
@@ -68,9 +71,8 @@ import java.util.Optional;
 
 public class CxxLuaExtensionDescription implements
     Description<CxxLuaExtensionDescription.Arg>,
-    ImplicitDepsInferringDescription<CxxLuaExtensionDescription.Arg> {
-
-  private static final BuildRuleType TYPE = BuildRuleType.of("cxx_lua_extension");
+    ImplicitDepsInferringDescription<CxxLuaExtensionDescription.Arg>,
+    VersionPropagator<CxxLuaExtensionDescription.Arg> {
 
   private final LuaConfig luaConfig;
   private final CxxBuckConfig cxxBuckConfig;
@@ -113,6 +115,7 @@ public class CxxLuaExtensionDescription implements
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Arg args) throws NoSuchBuildTargetException {
 
@@ -136,10 +139,19 @@ public class CxxLuaExtensionDescription implements
         CxxDescriptionEnhancer.requireHeaderSymlinkTree(
             params,
             ruleResolver,
-            new SourcePathResolver(ruleResolver),
+            pathResolver,
             cxxPlatform,
             headers,
-            HeaderVisibility.PRIVATE);
+            HeaderVisibility.PRIVATE,
+            true);
+    Optional<SymlinkTree> sandboxTree = Optional.empty();
+    if (cxxBuckConfig.sandboxSources()) {
+      sandboxTree =
+          CxxDescriptionEnhancer.createSandboxTree(
+              params,
+              ruleResolver,
+              cxxPlatform);
+    }
     ImmutableList<CxxPreprocessorInput> cxxPreprocessorInput =
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             params,
@@ -153,7 +165,9 @@ public class CxxLuaExtensionDescription implements
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 cxxPlatform,
-                params.getDeps()));
+                params.getDeps()),
+            args.includeDirs,
+            sandboxTree);
 
     // Generate rule to build the object files.
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> picObjects =
@@ -161,6 +175,7 @@ public class CxxLuaExtensionDescription implements
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             cxxPreprocessorInput,
@@ -170,10 +185,9 @@ public class CxxLuaExtensionDescription implements
                 args.langCompilerFlags,
                 cxxPlatform),
             args.prefixHeader,
-            cxxBuckConfig.getPreprocessMode(),
             srcs,
             CxxSourceRuleFactory.PicType.PIC,
-            Optional.empty());
+            sandboxTree);
 
     ImmutableList.Builder<com.facebook.buck.rules.args.Arg> argsBuilder = ImmutableList.builder();
     argsBuilder.addAll(
@@ -194,7 +208,15 @@ public class CxxLuaExtensionDescription implements
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       A args) throws NoSuchBuildTargetException {
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleResolver);
+    if (params.getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
+      return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
+          ruleResolver,
+          args,
+          cxxPlatform,
+          params);
+    }
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     String extensionName = getExtensionName(params.getBuildTarget(), cxxPlatform);
     Path extensionPath =
         getExtensionPath(
@@ -207,6 +229,7 @@ public class CxxLuaExtensionDescription implements
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         getExtensionTarget(
             params.getBuildTarget(),
             cxxPlatform.getFlavor()),
@@ -221,13 +244,15 @@ public class CxxLuaExtensionDescription implements
         Optional.empty(),
         ImmutableSet.of(),
         NativeLinkableInput.builder()
-            .setArgs(getExtensionArgs(params, ruleResolver, pathResolver, cxxPlatform, args))
+            .setArgs(
+                getExtensionArgs(
+                    params.withoutFlavor(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
+                    ruleResolver,
+                    pathResolver,
+                    ruleFinder,
+                    cxxPlatform,
+                    args))
             .build());
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -255,7 +280,8 @@ public class CxxLuaExtensionDescription implements
 
     // Otherwise, we return the generic placeholder of this library, that dependents can use
     // get the real build rules via querying the action graph.
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new CxxLuaExtension(params, pathResolver) {
 
       @Override
@@ -293,7 +319,8 @@ public class CxxLuaExtensionDescription implements
       public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
         return NativeLinkableInput.builder()
-            .addAllArgs(getExtensionArgs(params, resolver, pathResolver, cxxPlatform, args))
+            .addAllArgs(
+                getExtensionArgs(params, resolver, pathResolver, ruleFinder, cxxPlatform, args))
             .addAllFrameworks(args.frameworks)
             .build();
       }

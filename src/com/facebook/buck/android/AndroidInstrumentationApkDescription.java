@@ -32,11 +32,11 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.InstallableApk;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.util.HumanReadableException;
@@ -56,8 +56,6 @@ import java.util.Optional;
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("android_instrumentation_apk");
-
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
   private final ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> nativePlatforms;
@@ -75,11 +73,6 @@ public class AndroidInstrumentationApkDescription
     this.nativePlatforms = nativePlatforms;
     this.dxExecutorService = dxExecutorService;
     this.cxxBuckConfig = cxxBuckConfig;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -144,7 +137,6 @@ public class AndroidInstrumentationApkDescription
         args.includesVectorDrawables.orElse(false),
         javacOptions,
         EnumSet.noneOf(ExopackageMode.class),
-        apkUnderTest.getKeystore(),
         /* buildConfigValues */ BuildConfigFields.empty(),
         /* buildConfigValuesFile */ Optional.empty(),
         /* xzCompressionLevel */ Optional.empty(),
@@ -166,11 +158,14 @@ public class AndroidInstrumentationApkDescription
     AndroidGraphEnhancementResult enhancementResult =
         graphEnhancer.createAdditionalBuildables();
 
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new AndroidInstrumentationApk(
         params
             .copyWithExtraDeps(Suppliers.ofInstance(enhancementResult.getFinalDeps()))
             .appendExtraDeps(rulesToExcludeFromDex),
-        new SourcePathResolver(resolver),
+        pathResolver,
+        ruleFinder,
         proGuardConfig.getProguardJarOverride(),
         proGuardConfig.getProguardMaxHeapSize(),
         proGuardConfig.getProguardAgentPath(),

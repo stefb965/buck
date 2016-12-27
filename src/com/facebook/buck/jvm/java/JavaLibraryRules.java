@@ -24,14 +24,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.keys.AbiRule;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.OptionalCompat;
-import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -73,13 +72,6 @@ public class JavaLibraryRules {
       ProjectFilesystem filesystem,
       OnDiskBuildInfo onDiskBuildInfo)
       throws IOException {
-    Optional<Sha1HashCode> abiKeyHash = onDiskBuildInfo.getHash(AbiRule.ABI_KEY_ON_DISK_METADATA);
-    if (!abiKeyHash.isPresent()) {
-      throw new IllegalStateException(String.format(
-          "Should not be initializing %s from disk if the ABI key is not written.",
-          buildTarget));
-    }
-
     List<String> lines =
         onDiskBuildInfo.getOutputFileContentsByLine(getPathToClassHashes(buildTarget, filesystem));
     ImmutableSortedMap<String, HashCode> classHashes = AccumulateClassNamesStep.parseClassHashes(
@@ -120,12 +112,18 @@ public class JavaLibraryRules {
     return libraries.build();
   }
 
-  public static ImmutableSortedSet<SourcePath> getAbiInputs(Iterable<? extends BuildRule> inputs) {
+  public static ImmutableSortedSet<SourcePath> getAbiInputs(
+      BuildRuleResolver resolver,
+      Iterable<BuildRule> inputs) throws NoSuchBuildTargetException {
     ImmutableSortedSet.Builder<SourcePath> abiRules =
         ImmutableSortedSet.naturalOrder();
     for (BuildRule dep : inputs) {
       if (dep instanceof HasJavaAbi) {
-        abiRules.addAll(OptionalCompat.asSet(((HasJavaAbi) dep).getAbiJar()));
+        Optional<BuildTarget> abiJarTarget = ((HasJavaAbi) dep).getAbiJar();
+        if (abiJarTarget.isPresent()) {
+          resolver.requireRule(abiJarTarget.get());
+          abiRules.add(new BuildTargetSourcePath(abiJarTarget.get()));
+        }
       }
     }
     return abiRules.build();

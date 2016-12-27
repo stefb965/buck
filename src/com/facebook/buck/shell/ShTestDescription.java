@@ -21,13 +21,13 @@ import com.facebook.buck.model.MacroException;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourcePaths;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
@@ -55,8 +55,6 @@ public class ShTestDescription implements
     Description<ShTestDescription.Arg>,
     ImplicitDepsInferringDescription<ShTestDescription.Arg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("sh_test");
-
   private static final MacroHandler MACRO_HANDLER =
       new MacroHandler(
           ImmutableMap.of(
@@ -72,11 +70,6 @@ public class ShTestDescription implements
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
@@ -87,7 +80,8 @@ public class ShTestDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     Function<String, com.facebook.buck.rules.args.Arg> toArg =
         MacroArg.toMacroArgFunction(
             MACRO_HANDLER,
@@ -107,8 +101,9 @@ public class ShTestDescription implements
         params.appendExtraDeps(
             () -> FluentIterable.from(testArgs)
                 .append(testEnv.values())
-                .transformAndConcat(arg -> arg.getDeps(pathResolver))),
+                .transformAndConcat(arg -> arg.getDeps(ruleFinder))),
         pathResolver,
+        ruleFinder,
         args.test,
         testArgs,
         testEnv,

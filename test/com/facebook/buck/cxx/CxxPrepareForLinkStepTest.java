@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
@@ -52,8 +53,8 @@ public class CxxPrepareForLinkStepTest {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        buildRuleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
 
     // Setup some dummy values for inputs to the CxxLinkStep
     ImmutableList<Arg> dummyArgs = ImmutableList.of(
@@ -69,7 +70,8 @@ public class CxxPrepareForLinkStepTest {
         dummyPath,
         dummyArgs,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        dummyPath);
+        dummyPath,
+        pathResolver);
 
     ImmutableList<Step> containingSteps = ImmutableList.copyOf(
         cxxPrepareForLinkStepSupportFileList.iterator());
@@ -87,7 +89,8 @@ public class CxxPrepareForLinkStepTest {
         dummyPath,
         dummyArgs,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        dummyPath);
+        dummyPath,
+        pathResolver);
 
     containingSteps = ImmutableList.copyOf(
         cxxPrepareForLinkStepNoSupportFileList.iterator());
@@ -97,11 +100,11 @@ public class CxxPrepareForLinkStepTest {
 
   @Test
   public void cxxLinkStepPassesLinkerOptionsViaArgFile() throws IOException, InterruptedException {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
     Path argFilePath = projectFilesystem.getRootPath().resolve(
-        "/tmp/cxxLinkStepPassesLinkerOptionsViaArgFile.txt");
+        "cxxLinkStepPassesLinkerOptionsViaArgFile.txt");
     Path fileListPath = projectFilesystem.getRootPath().resolve(
-        "/tmp/cxxLinkStepPassesLinkerOptionsViaFileList.txt");
+        "cxxLinkStepPassesLinkerOptionsViaFileList.txt");
     Path output = projectFilesystem.getRootPath().resolve("output");
 
     runTestForArgFilePathAndOutputPath(argFilePath, fileListPath, output,
@@ -110,11 +113,11 @@ public class CxxPrepareForLinkStepTest {
 
   @Test
   public void cxxLinkStepCreatesDirectoriesIfNeeded() throws IOException, InterruptedException {
-    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
     Path argFilePath = projectFilesystem.getRootPath().resolve(
-        "/tmp/unexisting_parent_folder/argfile.txt");
+        "unexisting_parent_folder/argfile.txt");
     Path fileListPath = projectFilesystem.getRootPath().resolve(
-        "/tmp/unexisting_parent_folder/filelist.txt");
+        "unexisting_parent_folder/filelist.txt");
     Path output = projectFilesystem.getRootPath().resolve("output");
 
     Files.deleteIfExists(argFilePath);
@@ -141,8 +144,8 @@ public class CxxPrepareForLinkStepTest {
     BuildRuleResolver buildRuleResolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        buildRuleResolver);
+    SourcePathResolver pathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(buildRuleResolver));
 
     // Setup some dummy values for inputs to the CxxLinkStep
     ImmutableList<Arg> args = ImmutableList.of(
@@ -167,7 +170,8 @@ public class CxxPrepareForLinkStepTest {
         output,
         args,
         CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
-        currentCellPath);
+        currentCellPath,
+        pathResolver);
 
     step.execute(context);
 

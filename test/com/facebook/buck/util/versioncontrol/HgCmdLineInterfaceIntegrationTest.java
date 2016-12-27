@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -28,6 +29,7 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.TestProcessExecutorFactory;
 import com.facebook.buck.zip.Unzip;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
@@ -36,16 +38,25 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 
 
 public class HgCmdLineInterfaceIntegrationTest {
+
+  @Rule
+  public ExpectedException exception = ExpectedException.none();
+
   /**
    * Test constants
    */
@@ -221,28 +232,30 @@ public class HgCmdLineInterfaceIntegrationTest {
   }
 
   @Test
-  public void testDiffBetweenRevisions()
-      throws VersionControlCommandFailedException, InterruptedException {
-    assertEquals(
-        "diff --git a/change2 b/change2new file mode 100644diff --git a/file3 b/file3deleted " +
-            "file mode 100644",
-        repoThreeCmdLine.diffBetweenRevisions("adf7a0", "2911b3"));
-  }
-
-  @Test
   public void testDiffBetweenTheSameRevision()
       throws VersionControlCommandFailedException, InterruptedException {
-    assertEquals("", repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0"));
+    exception.expect(VersionControlCommandFailedException.class);
+    repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0");
   }
 
   @Test
-  public void testDiffBetweenDiffsOfDifferentBranches()
+  public void testDiffBetweenDiffs()
       throws VersionControlCommandFailedException, InterruptedException {
+    ImmutableList<String> expectedValue = ImmutableList.of(
+        "# HG changeset patch",
+        "# User Joe Blogs <joe.blogs@fb.com>",
+        "# Date 1440589545 -3600",
+        "#      Wed Aug 26 12:45:45 2015 +0100",
+        "# Node ID 2911b3cab6b24374a3649ebb96b0e53324e9c02e",
+        "# Parent  b1fd7e5896af8aa30e3e797ef1445605eec6d055",
+        "diverge from master_2",
+        "",
+        "diff --git a/change2 b/change2",
+        "new file mode 100644",
+        "");
     assertEquals(
-        "diff --git a/change2 b/change2deleted file mode 100644diff --git a/change3 b/change3new " +
-            "file mode 100644diff --git a/change3-2 b/change3-2new file mode 100644diff " +
-            "--git a/file3 b/file3new file mode 100644",
-        repoThreeCmdLine.diffBetweenRevisions("2911b3", "dee670"));
+        String.join("\n", expectedValue),
+        repoThreeCmdLine.diffBetweenRevisions("b1fd7e", "2911b3"));
   }
 
   @Test
@@ -290,21 +303,93 @@ public class HgCmdLineInterfaceIntegrationTest {
     assertEquals(NoOpCmdLineInterface.class, cmdLineInterface.getClass());
   }
 
+  @Test
+  public void testExtractRawManifestNoChanges()
+    throws VersionControlCommandFailedException, InterruptedException, IOException {
+    HgCmdLineInterface hgCmdLineInterface = (HgCmdLineInterface) repoTwoCmdLine;
+    String path = hgCmdLineInterface.extractRawManifest();
+    List<String> lines = Files.readAllLines(
+        Paths.get(path),
+        Charset.forName(System.getProperty("file.encoding", "UTF-8"))
+    );
+    List<String> expected = ImmutableList.of(
+        "change2\0b80de5d138758541c5f05265ad144ab9fa86d1db",
+        "file1\0b80de5d138758541c5f05265ad144ab9fa86d1db",
+        "file2\0b80de5d138758541c5f05265ad144ab9fa86d1db"
+    );
+    assertEquals(lines, expected);
+  }
+
+  @Test
+  public void testExtractRawManifestFileRenamed()
+      throws VersionControlCommandFailedException, InterruptedException, IOException {
+    // In order to make changes without affecting other tests, extract a new repository copy
+    Path localTempFolder = Files.createTempDirectory(tempFolder.getRoot().toPath(), "temp-repo");
+    Path localReposPath = explodeReposZip(localTempFolder);
+    Files.delete(localReposPath.resolve(REPO_TWO_DIR + "/file1"));
+
+    HgCmdLineInterface hgCmdLineInterface = (HgCmdLineInterface) makeCmdLine(
+        localReposPath.resolve(REPO_TWO_DIR));
+
+    String path = hgCmdLineInterface.extractRawManifest();
+    List<String> lines = Files.readAllLines(
+        Paths.get(path),
+        Charset.forName(System.getProperty("file.encoding", "UTF-8"))
+    );
+    List<String> expected = ImmutableList.of(
+        "change2\u0000b80de5d138758541c5f05265ad144ab9fa86d1db",
+        "file1\u0000b80de5d138758541c5f05265ad144ab9fa86d1db",
+        "file2\u0000b80de5d138758541c5f05265ad144ab9fa86d1db",
+        "file1\u00000000000000000000000000000000000000000000d"
+    );
+    assertEquals(lines, expected);
+  }
+
+  @Test
+  public void testHgRootSubdir()
+    throws VersionControlCommandFailedException, InterruptedException, IOException {
+    // Use a subdir of the repository
+    HgCmdLineInterface hgCmdLineInterface = (HgCmdLineInterface) makeCmdLine(
+        reposPath.resolve(REPO_WITH_SUB_DIR + "/subdir"));
+    Path result = hgCmdLineInterface.getHgRoot();
+    // Use toRealPath to follow the pecularities of the OS X tempdir system, which uses a
+    // /var -> /private/var symlink.
+    assertEquals(result, reposPath.resolve(REPO_WITH_SUB_DIR).toRealPath());
+  }
+
+  @Test
+  public void testHgRootOutsideRepo()
+      throws VersionControlCommandFailedException, InterruptedException {
+    // Note: reposPath is not a hg repository, so we have to create a HgCmdLineInterface directly
+    // here.
+    HgCmdLineInterface hgCmdLineInterface = new HgCmdLineInterface(
+        new TestProcessExecutorFactory(),
+        reposPath,
+        new VersionControlBuckConfig(FakeBuckConfig.builder().build().getRawConfig()).getHgCmd(),
+        ImmutableMap.of()
+    );
+    Path result = hgCmdLineInterface.getHgRoot();
+    assertNull(result);
+  }
+
   private static void assumeHgInstalled() {
     // If Mercurial is not installed on the build box, then skip tests.
     Assume.assumeTrue(repoTwoCmdLine instanceof HgCmdLineInterface);
   }
 
   private static Path explodeReposZip() throws IOException {
+    return explodeReposZip(tempFolder.getRoot().toPath());
+  }
+
+  private static Path explodeReposZip(Path destination) throws IOException {
     Path testDataDir = TestDataHelper.getTestDataDirectory(HgCmdLineInterfaceIntegrationTest.class);
     Path hgRepoZipPath = testDataDir.resolve(HG_REPOS_ZIP);
 
-    Path tempFolderPath = tempFolder.getRoot().toPath();
-    Path hgRepoZipCopyPath = tempFolderPath.resolve(HG_REPOS_ZIP);
+    Path hgRepoZipCopyPath = destination.resolve(HG_REPOS_ZIP);
 
     Files.copy(hgRepoZipPath, hgRepoZipCopyPath, REPLACE_EXISTING);
 
-    Path reposPath = tempFolderPath.resolve(REPOS_DIR);
+    Path reposPath = destination.resolve(REPOS_DIR);
     Unzip.extractZipFile(
         hgRepoZipCopyPath,
         reposPath,

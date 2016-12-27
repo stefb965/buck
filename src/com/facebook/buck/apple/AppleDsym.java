@@ -16,6 +16,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.cxx.CxxStrip;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.StripStyle;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -53,6 +54,7 @@ public class AppleDsym
   @AddToRuleKey
   private final Tool lldb;
 
+  private final SourcePathResolver resolver;
   @AddToRuleKey
   private final Tool dsymutil;
 
@@ -70,6 +72,7 @@ public class AppleDsym
       SourcePath unstrippedBinarySourcePath,
       Path dsymOutputPath) {
     super(params, resolver);
+    this.resolver = resolver;
     this.dsymutil = dsymutil;
     this.lldb = lldb;
     this.unstrippedBinarySourcePath = unstrippedBinarySourcePath;
@@ -106,6 +109,10 @@ public class AppleDsym
         !StripStyle.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
         "Rule %s must not contain strip style flavors: %s works only with unstripped binaries!",
         buildTarget, AppleDsym.class.toString());
+    Preconditions.checkArgument(
+        !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
+        "Rule %s must not contain linker map mode flavors.",
+        buildTarget);
   }
 
   @Override
@@ -114,14 +121,15 @@ public class AppleDsym
       BuildableContext buildableContext) {
     buildableContext.recordArtifact(dsymOutputPath);
 
-    Path unstrippedBinaryPath = getResolver().getAbsolutePath(unstrippedBinarySourcePath);
+    Path unstrippedBinaryPath =
+        context.getSourcePathResolver().getAbsolutePath(unstrippedBinarySourcePath);
     Path dwarfFileFolder = dsymOutputPath.resolve(DSYM_DWARF_FILE_FOLDER);
     return ImmutableList.of(
         new RmStep(getProjectFilesystem(), dsymOutputPath, true, true),
         new DsymStep(
             getProjectFilesystem(),
-            dsymutil.getEnvironment(getResolver()),
-            dsymutil.getCommandPrefix(getResolver()),
+            dsymutil.getEnvironment(),
+            dsymutil.getCommandPrefix(context.getSourcePathResolver()),
             unstrippedBinaryPath,
             dsymOutputPath),
         new MoveStep(
@@ -141,7 +149,7 @@ public class AppleDsym
         new RegisterDebugSymbolsStep(
             unstrippedBinarySourcePath,
             lldb,
-            getResolver(),
+            resolver,
             dsymOutputPath));
   }
 }

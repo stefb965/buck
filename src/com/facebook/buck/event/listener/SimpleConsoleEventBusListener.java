@@ -46,11 +46,11 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 
@@ -468,6 +468,10 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       lastRenderedTime = Long.MAX_VALUE - TimeUnit.DAYS.toMillis(1);
     }
 
+    @Override
+    public boolean equals(Object obj) {
+      return obj == this;
+    }
 
     @Override
     public int hashCode() {

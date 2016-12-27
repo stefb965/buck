@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableSet;
@@ -41,23 +42,23 @@ public class DefaultIjLibraryFactoryTest {
 
   private SourcePathResolver sourcePathResolver;
   private Path guavaJarPath;
-  private TargetNode<?> guava;
+  private TargetNode<?, ?> guava;
   private IjLibrary guavaLibrary;
-  private TargetNode<?> androidSupport;
+  private TargetNode<?, ?> androidSupport;
   private Path androidSupportBinaryPath;
   private IjLibrary androidSupportLibrary;
   private IjLibrary baseLibrary;
-  private TargetNode<?> base;
+  private TargetNode<?, ?> base;
   private Path androidSupportBinaryJarPath;
   private Path baseOutputPath;
-  private DefaultIjLibraryFactory.IjLibraryFactoryResolver libraryFactoryResolver;
+  private IjLibraryFactoryResolver libraryFactoryResolver;
   private IjLibraryFactory factory;
 
   @Before
   public void setUp() throws Exception {
-    sourcePathResolver = new SourcePathResolver(
+    sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
+    ));
     guavaJarPath = Paths.get("third_party/java/guava.jar");
     guava = PrebuiltJarBuilder
         .createBuilder(BuildTargetFactory.newInstance("//third_party/java/guava:guava"))
@@ -78,14 +79,14 @@ public class DefaultIjLibraryFactoryTest {
     androidSupportBinaryJarPath = Paths.get("buck_out/support.aar/classes.jar");
     baseOutputPath = Paths.get("buck-out/base.jar");
 
-    libraryFactoryResolver = new DefaultIjLibraryFactory.IjLibraryFactoryResolver() {
+    libraryFactoryResolver = new IjLibraryFactoryResolver() {
       @Override
       public Path getPath(SourcePath path) {
         return sourcePathResolver.getRelativePath(path);
       }
 
       @Override
-      public Optional<Path> getPathIfJavaLibrary(TargetNode<?> targetNode) {
+      public Optional<Path> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
         if (targetNode.equals(base)) {
           return Optional.of(baseOutputPath);
         }

@@ -26,10 +26,10 @@ import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.base.Preconditions;
@@ -42,8 +42,6 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 public class GwtBinaryDescription implements Description<GwtBinaryDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("gwt_binary");
 
   /** Default value for {@link Arg#style}. */
   private static final Style DEFAULT_STYLE = Style.OBF;
@@ -69,11 +67,6 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
   }
 
   @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
-
-  @Override
   public Arg createUnpopulatedConstructorArg() {
     return new Arg();
   }
@@ -84,6 +77,9 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
       final BuildRuleParams params,
       final BuildRuleResolver resolver,
       A args) {
+
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
 
     final ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.naturalOrder();
 
@@ -115,8 +111,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
                   .addAll(javaLibrary.getResources())
                   .build();
           ImmutableSortedSet<BuildRule> deps =
-              ImmutableSortedSet.copyOf(
-                  new SourcePathResolver(resolver).filterBuildRuleInputs(filesForGwtModule));
+              ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(filesForGwtModule));
 
           BuildRule module = resolver.addToIndex(
               new GwtModule(
@@ -124,7 +119,8 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
                       gwtModuleTarget,
                       Suppliers.ofInstance(deps),
                       Suppliers.ofInstance(ImmutableSortedSet.of())),
-                  new SourcePathResolver(resolver),
+                  pathResolver,
+                  ruleFinder,
                   filesForGwtModule));
           gwtModule = Optional.of(module);
         }
@@ -144,7 +140,7 @@ public class GwtBinaryDescription implements Description<GwtBinaryDescription.Ar
 
     return new GwtBinary(
         params.copyWithExtraDeps(Suppliers.ofInstance(extraDeps.build())),
-        new SourcePathResolver(resolver),
+        pathResolver,
         args.modules,
         javaOptions.getJavaRuntimeLauncher(),
         args.vmArgs,

@@ -31,7 +31,8 @@ import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.FakeProcess;
@@ -69,26 +70,20 @@ public class KnownBuildRuleTypesTest {
 
   private static BuildRuleParams buildRuleParams;
 
-  private static class TestDescription implements Description<TestDescription.Arg> {
+  private static class KnownRuleTestDescription
+      implements Description<KnownRuleTestDescription.Arg> {
 
     static class Arg extends AbstractDescriptionArg {
     };
 
-    public static final BuildRuleType TYPE = BuildRuleType.of("known_rule_test");
-
     private final String value;
 
-    private TestDescription(String value) {
+    private KnownRuleTestDescription(String value) {
       this.value = value;
     }
 
     public String getValue() {
       return value;
-    }
-
-    @Override
-    public BuildRuleType getBuildRuleType() {
-      return TYPE;
     }
 
     @Override
@@ -120,6 +115,7 @@ public class KnownBuildRuleTypesTest {
     arg.javaVersion = Optional.empty();
     arg.javac = Optional.empty();
     arg.javacJar = Optional.empty();
+    arg.compilerClassName = Optional.empty();
     arg.compiler = Optional.empty();
     arg.extraArguments = ImmutableList.of();
     arg.removeClasses = ImmutableSet.of();
@@ -135,11 +131,14 @@ public class KnownBuildRuleTypesTest {
     arg.exportedDeps = ImmutableSortedSet.of();
     arg.deps = ImmutableSortedSet.of();
     arg.tests = ImmutableSortedSet.of();
+    arg.generateAbiFromSource = Optional.empty();
   }
 
-  private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes) {
+  private DefaultJavaLibrary createJavaLibrary(KnownBuildRuleTypes buildRuleTypes)
+      throws NoSuchBuildTargetException {
     JavaLibraryDescription description =
-        (JavaLibraryDescription) buildRuleTypes.getDescription(JavaLibraryDescription.TYPE);
+        (JavaLibraryDescription) buildRuleTypes.getDescription(
+            Description.getBuildRuleType(JavaLibraryDescription.class));
 
     JavaLibraryDescription.Arg arg = new JavaLibraryDescription.Arg();
     populateJavaArg(arg);
@@ -181,15 +180,16 @@ public class KnownBuildRuleTypesTest {
         .build();
     DefaultJavaLibrary configuredRule = createJavaLibrary(configuredBuildRuleTypes);
 
-    SourcePathResolver resolver = new SourcePathResolver(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     );
+    );
+    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
     FakeFileHashCache hashCache = new FakeFileHashCache(
         ImmutableMap.of(javac, MorePaths.asByteSource(javac).hash(Hashing.sha1())));
-    RuleKey configuredKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
-        configuredRule);
-    RuleKey libraryKey = new DefaultRuleKeyBuilderFactory(0, hashCache, resolver).build(
-        libraryRule);
+    RuleKey configuredKey = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder)
+        .build(configuredRule);
+    RuleKey libraryKey = new DefaultRuleKeyFactory(0, hashCache, resolver, ruleFinder)
+        .build(libraryRule);
 
     assertNotEquals(libraryKey, configuredKey);
   }
@@ -201,9 +201,9 @@ public class KnownBuildRuleTypesTest {
     CxxPlatform defaultPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
-    buildRuleTypesBuilder.register(new TestDescription("Foo"));
-    buildRuleTypesBuilder.register(new TestDescription("Bar"));
-    buildRuleTypesBuilder.register(new TestDescription("Raz"));
+    buildRuleTypesBuilder.register(new KnownRuleTestDescription("Foo"));
+    buildRuleTypesBuilder.register(new KnownRuleTestDescription("Bar"));
+    buildRuleTypesBuilder.register(new KnownRuleTestDescription("Raz"));
 
     buildRuleTypesBuilder.setCxxPlatforms(
         cxxPlatforms);
@@ -224,13 +224,14 @@ public class KnownBuildRuleTypesTest {
 
     boolean foundTestDescription = false;
     for (Description<?> description : buildRuleTypes.getAllDescriptions()) {
-      if (description.getBuildRuleType().equals(TestDescription.TYPE)) {
+      if (Description.getBuildRuleType(description)
+          .equals(Description.getBuildRuleType(KnownRuleTestDescription.class))) {
         assertFalse("Should only find one test description", foundTestDescription);
         foundTestDescription = true;
         assertEquals(
             "Last description should have won",
             "Raz",
-            ((TestDescription) description).getValue());
+            ((KnownRuleTestDescription) description).getValue());
       }
     }
   }

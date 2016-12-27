@@ -113,7 +113,7 @@ public class PerBuildState implements AutoCloseable {
     this.stderr = new PrintStream(ByteStreams.nullOutputStream());
     this.console = new Console(Verbosity.STANDARD_INFORMATION, stdout, stderr, Ansi.withoutTty());
 
-    TargetNodeListener<TargetNode<?>> symlinkCheckers =
+    TargetNodeListener<TargetNode<?, ?>> symlinkCheckers =
         this::registerInputsUnderSymlinks;
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
     int numParsingThreads = parserConfig.getNumParsingThreads();
@@ -150,21 +150,21 @@ public class PerBuildState implements AutoCloseable {
     register(rootCell);
   }
 
-  public TargetNode<?> getTargetNode(BuildTarget target)
+  public TargetNode<?, ?> getTargetNode(BuildTarget target)
       throws BuildFileParseException, BuildTargetException {
     Cell owningCell = getCell(target);
 
     return targetNodeParsePipeline.getNode(owningCell, target);
   }
 
-  public ImmutableSet<TargetNode<?>> getAllTargetNodes(Cell cell, Path buildFile)
+  public ImmutableSet<TargetNode<?, ?>> getAllTargetNodes(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
     return targetNodeParsePipeline.getAllNodes(cell, buildFile);
   }
 
-  public ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(
+  public ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(
       Cell cell,
       Path buildFile) throws BuildTargetException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
@@ -234,7 +234,7 @@ public class PerBuildState implements AutoCloseable {
 
   private void registerInputsUnderSymlinks(
       Path buildFile,
-      TargetNode<?> node) throws IOException {
+      TargetNode<?, ?> node) throws IOException {
     Map<Path, Path> newSymlinksEncountered =
         inputFilesUnderSymlink(node.getInputs(), node.getFilesystem(), symlinkExistenceCache);
     if (!newSymlinksEncountered.isEmpty()) {
@@ -274,9 +274,10 @@ public class PerBuildState implements AutoCloseable {
       // depending on the config setting.
       String msg =
           String.format(
-              "Disabling caching for target %s, because one or more input files are under a " +
-                  "symbolic link (%s). This will severely impact performance! To resolve this, " +
-                  "use separate rules and declare dependencies instead of using symbolic links.",
+              "Disabling parser cache for target %s, because one or more input files are under a " +
+                  "symbolic link (%s). This will severely impact the time spent in parsing! To " +
+                  "resolve this, use separate rules and declare dependencies instead of using " +
+                  "symbolic links.",
               node.getBuildTarget(),
               newSymlinksEncountered);
       if (allowSymlinks == ParserConfig.AllowSymlinks.WARN) {
@@ -285,7 +286,7 @@ public class PerBuildState implements AutoCloseable {
         LOG.warn(msg);
       }
 
-      eventBus.post(ParsingEvent.symlinkInvalidation());
+      eventBus.post(ParsingEvent.symlinkInvalidation(buildFile.toString()));
       buildInputPathsUnderSymlink.add(buildFile);
     }
   }
@@ -335,6 +336,12 @@ public class PerBuildState implements AutoCloseable {
         eventBus,
         toExplore,
         ignoreBuckAutodepsFiles);
+  }
+
+  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
+    for (Cell eachCell : cells.values()) {
+      eachCell.ensureConcreteFilesExist(eventBus);
+    }
   }
 
   @Override

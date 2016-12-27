@@ -17,7 +17,7 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.graph.DefaultDirectedAcyclicGraph;
+import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.model.BuildTarget;
@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -211,8 +212,7 @@ public class Omnibus {
         return keep;
       }
     }.start();
-    DefaultDirectedAcyclicGraph<BuildTarget> graph =
-        new DefaultDirectedAcyclicGraph<>(graphBuilder);
+    DirectedAcyclicGraph<BuildTarget> graph = new DirectedAcyclicGraph<>(graphBuilder);
 
     // Since we add all undefined root symbols into the omnibus library, we also need to include
     // any excluded root deps as deps of omnibus, as they may fulfill these undefined symbols.
@@ -238,6 +238,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags) {
@@ -251,6 +252,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             dummyOmnibusTarget,
             BuildTargets.getGenPath(params.getProjectFilesystem(), dummyOmnibusTarget, "%s")
                 .resolve(omnibusSoname),
@@ -265,6 +267,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -361,6 +364,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 rootTarget,
                 output.orElse(BuildTargets.getGenPath(
                     params.getProjectFilesystem(),
@@ -385,6 +389,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 rootTarget,
                 output.orElse(BuildTargets.getGenPath(
                     params.getProjectFilesystem(),
@@ -416,6 +421,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -427,6 +433,7 @@ public class Omnibus {
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         extraLdflags,
@@ -441,6 +448,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -452,6 +460,7 @@ public class Omnibus {
         params,
         ruleResolver,
         pathResolver,
+        ruleFinder,
         cxxBuckConfig,
         cxxPlatform,
         extraLdflags,
@@ -466,6 +475,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends SourcePath> linkerInputs) {
     SourcePath undefinedSymbolsFile =
@@ -474,6 +484,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 params.getBuildTarget().withAppendedFlavors(
                     ImmutableFlavor.of("omnibus-undefined-symbols-file")),
                 linkerInputs);
@@ -482,6 +493,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             params.getBuildTarget().withAppendedFlavors(
                 ImmutableFlavor.of("omnibus-undefined-symbols-args")),
             ImmutableList.of(undefinedSymbolsFile));
@@ -492,6 +504,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -522,6 +535,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxPlatform,
             undefinedSymbolsOnlyRoots));
 
@@ -582,6 +596,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             omnibusTarget,
             BuildTargets.getGenPath(params.getProjectFilesystem(), omnibusTarget, "%s")
                 .resolve(omnibusSoname),
@@ -607,6 +622,7 @@ public class Omnibus {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ImmutableList<? extends Arg> extraLdflags,
@@ -626,6 +642,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             extraLdflags);
@@ -641,6 +658,7 @@ public class Omnibus {
             params,
             ruleResolver,
             pathResolver,
+            ruleFinder,
             cxxBuckConfig,
             cxxPlatform,
             extraLdflags,
@@ -653,6 +671,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
                 extraLdflags,
@@ -671,6 +690,7 @@ public class Omnibus {
               params,
               ruleResolver,
               pathResolver,
+              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,
@@ -688,6 +708,7 @@ public class Omnibus {
                 params,
                 ruleResolver,
                 pathResolver,
+                ruleFinder,
                 cxxBuckConfig,
                 cxxPlatform,
                 extraLdflags,
@@ -715,7 +736,7 @@ public class Omnibus {
   abstract static class OmnibusSpec {
 
     // The graph containing all root and body nodes that are to be included in the omnibus link.
-    public abstract DefaultDirectedAcyclicGraph<BuildTarget> getGraph();
+    public abstract DirectedAcyclicGraph<BuildTarget> getGraph();
 
     // All native roots included in the omnibus.  These will get linked into separate shared
     // libraries which depend on the giant statically linked omnibus body.

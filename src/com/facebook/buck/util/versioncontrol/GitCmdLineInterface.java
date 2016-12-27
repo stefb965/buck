@@ -20,7 +20,7 @@ import java.util.Optional;
 
 public class GitCmdLineInterface implements VersionControlCmdLineInterface {
 
-  private final static Logger LOG = Logger.get(GitCmdLineInterface.class);
+  private static final Logger LOG = Logger.get(GitCmdLineInterface.class);
 
   private final ProcessExecutorFactory processExecutorFactory;
   private final Path projectRoot;

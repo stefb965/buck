@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -29,6 +30,7 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
@@ -56,11 +58,12 @@ public class CxxPrecompiledHeaderTest {
         };
     Compiler compiler =
         CxxPlatformUtils.DEFAULT_PLATFORM.getCxx().resolve(resolver);
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver sourcePathResolver =
+        new SourcePathResolver(new SourcePathRuleFinder(resolver));
     CxxPrecompiledHeader precompiledHeader = new CxxPrecompiledHeader(
         params,
         sourcePathResolver,
-        Paths.get("foo.pch"),
+        Paths.get("foo.hash1.hash2.gch"),
         new PreprocessorDelegate(
             sourcePathResolver,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -83,9 +86,14 @@ public class CxxPrecompiledHeaderTest {
         new FakeSourcePath("foo.h"),
         CxxSource.Type.C,
         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-        CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER);
+        CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
+        /* pchILogEnabled: not needed for this test */ false);
+    BuildContext buildContext = BuildContext.builder()
+        .from(FakeBuildContext.NOOP_CONTEXT)
+        .setSourcePathResolver(sourcePathResolver)
+        .build();
     ImmutableList<Step> postBuildSteps = precompiledHeader.getBuildSteps(
-        FakeBuildContext.NOOP_CONTEXT,
+        buildContext,
         new FakeBuildableContext());
     CxxPreprocessAndCompileStep step = Iterables.getOnlyElement(
         Iterables.filter(postBuildSteps, CxxPreprocessAndCompileStep.class));

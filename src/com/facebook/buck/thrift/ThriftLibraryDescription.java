@@ -30,13 +30,13 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
@@ -63,7 +63,6 @@ public class ThriftLibraryDescription
     Flavored,
     ImplicitDepsInferringDescription<ThriftConstructorArg> {
 
-  public static final BuildRuleType TYPE = BuildRuleType.of("thrift_library");
   private static final Flavor INCLUDE_SYMLINK_TREE_FLAVOR =
       ImmutableFlavor.of("include_symlink_tree");
 
@@ -161,7 +160,8 @@ public class ThriftLibraryDescription
       ImmutableSortedSet<ThriftLibrary> deps,
       ImmutableMap<String, ImmutableSortedSet<String>> generatedSources) {
 
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     Tool compiler = thriftBuckConfig.getCompiler(compilerType, resolver);
 
     // Build up the include roots to find thrift file deps and also the build rules that
@@ -200,9 +200,9 @@ public class ThriftLibraryDescription
                   target,
                   Suppliers.ofInstance(
                       ImmutableSortedSet.<BuildRule>naturalOrder()
-                          .addAll(compiler.getDeps(pathResolver))
+                          .addAll(compiler.getDeps(ruleFinder))
                           .addAll(
-                              new SourcePathResolver(resolver).filterBuildRuleInputs(
+                              ruleFinder.filterBuildRuleInputs(
                                   ImmutableList.<SourcePath>builder()
                                       .add(source)
                                       .addAll(includes.values())
@@ -261,7 +261,7 @@ public class ThriftLibraryDescription
     // Extract the thrift language we're using from our build target.
     Optional<Map.Entry<Flavor, ThriftLanguageSpecificEnhancer>> enhancerFlavor =
         enhancers.getFlavorAndValue(target);
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     ImmutableMap<String, SourcePath> namedSources =
         pathResolver.getSourcePathNames(target, "srcs", args.srcs.keySet());
 
@@ -398,11 +398,6 @@ public class ThriftLibraryDescription
   @Override
   public ThriftConstructorArg createUnpopulatedConstructorArg() {
     return new ThriftConstructorArg();
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override

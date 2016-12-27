@@ -19,6 +19,7 @@ package com.facebook.buck.log;
 import static com.facebook.buck.util.MoreThrowables.getInitialCause;
 import static com.facebook.buck.util.MoreThrowables.getThrowableOrigin;
 
+import com.facebook.buck.build_type.BuildType;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.collect.ImmutableList;
@@ -38,6 +39,13 @@ abstract class AbstractErrorLogRecord {
   private static final ThreadIdToCommandIdMapper MAPPER = GlobalStateManager
       .singleton()
       .getThreadIdToCommandIdMapper();
+  private static final CommandIdToIsDaemonMapper IS_DAEMON_MAPPER = GlobalStateManager
+      .singleton()
+      .getCommandIdToIsDaemonMapper();
+  private static final CommandIdToIsSuperConsoleEnabledMapper IS_SUPERCONSOLE_ENABLED_MAPPER =
+      GlobalStateManager
+          .singleton()
+          .getCommandIdToIsSuperConsoleEnabledMapper();
   private static final Logger LOG = Logger.get(AbstractErrorLogRecord.class);
 
   public abstract LogRecord getRecord();
@@ -60,6 +68,7 @@ abstract class AbstractErrorLogRecord {
         .put("os", System.getProperty("os.name", "unknown"))
         .put("osVersion", System.getProperty("os.version", "unknown"))
         .put("user", System.getProperty("user.name", "unknown"))
+        .put("buckBinaryBuildType", BuildType.CURRENT_BUILD_TYPE.get().toString())
         .put("hostname", hostname)
         .build();
     return traits;
@@ -72,15 +81,12 @@ abstract class AbstractErrorLogRecord {
     Optional<String> errorMsg = Optional.empty();
     Throwable throwable = getRecord().getThrown();
     if (throwable != null) {
-      initialErr = Optional.of(getInitialCause(throwable).getClass().getName());
+      initialErr = Optional.ofNullable(getInitialCause(throwable).getClass().getName());
       if (throwable.getMessage() != null) {
-        initialErrorMsg = Optional.of(getInitialCause(throwable).getLocalizedMessage());
+        initialErrorMsg = Optional.ofNullable(getInitialCause(throwable).getLocalizedMessage());
       }
     }
-    String message = getRecord().getMessage();
-    if (message != null) {
-      errorMsg = Optional.of(message);
-    }
+    errorMsg = Optional.ofNullable(getRecord().getMessage());
     StringBuilder sb = new StringBuilder();
     for (Optional<String> field : ImmutableList.of(initialErr, initialErrorMsg, errorMsg)) {
       sb.append(field.orElse(""));
@@ -120,27 +126,40 @@ abstract class AbstractErrorLogRecord {
 
   @Value.Derived
   public Optional<String> getLogger() {
-    String logger = getRecord().getLoggerName();
-    if (logger != null) {
-      return Optional.of(logger);
-    }
-    return Optional.empty();
-  };
+    return Optional.ofNullable(getRecord().getLoggerName());
+  }
 
   @Value.Derived
   public Optional<String> getBuildUuid() {
     String buildUuid = MAPPER.threadIdToCommandId(getRecord().getThreadID());
-    if (buildUuid != null) {
-      return Optional.of(buildUuid);
+    return Optional.ofNullable(buildUuid);
+  }
+
+  @Value.Derived
+  public Optional<Boolean> getIsSuperConsoleEnabled() {
+    String buildUuid = MAPPER.threadIdToCommandId(getRecord().getThreadID());
+    if (buildUuid == null) {
+      return Optional.empty();
     }
-    return Optional.empty();
+    return Optional.ofNullable(
+        IS_SUPERCONSOLE_ENABLED_MAPPER
+            .commandIdToIsSuperConsoleEnabled(buildUuid));
+  }
+
+  @Value.Derived
+  public Optional<Boolean> getIsDaemon() {
+    String buildUuid = MAPPER.threadIdToCommandId(getRecord().getThreadID());
+    if (buildUuid == null) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(IS_DAEMON_MAPPER.commandIdToIsRunningAsDaemon(buildUuid));
   }
 
   @Value.Derived
   public Optional<StackTraceElement[]> getStack() {
     Throwable throwable = getRecord().getThrown();
     if (throwable != null) {
-      return Optional.of(throwable.getStackTrace());
+      return Optional.ofNullable(throwable.getStackTrace());
     }
     return Optional.empty();
   }
@@ -149,7 +168,7 @@ abstract class AbstractErrorLogRecord {
   public Optional<String> getErrorMessage() {
     Throwable throwable = getRecord().getThrown();
     if (throwable != null && throwable.getMessage() != null) {
-      return Optional.of(throwable.getMessage());
+      return Optional.ofNullable(throwable.getMessage());
     }
     return Optional.empty();
   }
@@ -158,7 +177,7 @@ abstract class AbstractErrorLogRecord {
   public Optional<String> getInitialError() {
     Throwable throwable = getRecord().getThrown();
     if (throwable != null) {
-      return Optional.of(getInitialCause(throwable).getClass().getName());
+      return Optional.ofNullable(getInitialCause(throwable).getClass().getName());
     }
     return Optional.empty();
   }
@@ -167,7 +186,7 @@ abstract class AbstractErrorLogRecord {
   public Optional<String> getInitialErrorMsg() {
     Throwable throwable = getRecord().getThrown();
     if (throwable != null) {
-      return Optional.of(getInitialCause(throwable).getLocalizedMessage());
+      return Optional.ofNullable(getInitialCause(throwable).getLocalizedMessage());
     }
     return Optional.empty();
   }
@@ -176,7 +195,7 @@ abstract class AbstractErrorLogRecord {
   public Optional<String> getOrigin() {
     Throwable throwable = getRecord().getThrown();
     if (throwable != null) {
-      return Optional.of(getThrowableOrigin(throwable));
+      return Optional.ofNullable(getThrowableOrigin(throwable));
     }
     return Optional.empty();
   }

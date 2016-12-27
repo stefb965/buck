@@ -22,6 +22,7 @@ import com.dd.plist.NSString;
 import com.facebook.buck.apple.AppleAssetCatalogDescription;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
 import com.facebook.buck.apple.AppleResourceDescription;
+import com.facebook.buck.apple.AppleWrapperResourceArg;
 import com.facebook.buck.apple.GroupedSource;
 import com.facebook.buck.apple.RuleUtils;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
@@ -90,9 +91,9 @@ class NewNativeTargetProjectMutator {
 
   public static class Result {
     public final PBXNativeTarget target;
-    public final PBXGroup targetGroup;
+    public final Optional<PBXGroup> targetGroup;
 
-    private Result(PBXNativeTarget target, PBXGroup targetGroup) {
+    private Result(PBXNativeTarget target, Optional<PBXGroup> targetGroup) {
       this.target = target;
       this.targetGroup = targetGroup;
     }
@@ -121,6 +122,7 @@ class NewNativeTargetProjectMutator {
   private ImmutableSet<AppleResourceDescription.Arg> directResources = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> recursiveAssetCatalogs = ImmutableSet.of();
   private ImmutableSet<AppleAssetCatalogDescription.Arg> directAssetCatalogs = ImmutableSet.of();
+  private ImmutableSet<AppleWrapperResourceArg> wrapperResources = ImmutableSet.of();
   private Iterable<PBXShellScriptBuildPhase> preBuildRunScriptPhases = ImmutableList.of();
   private Iterable<PBXBuildPhase> copyFilesPhases = ImmutableList.of();
   private Iterable<PBXShellScriptBuildPhase> postBuildRunScriptPhases = ImmutableList.of();
@@ -226,8 +228,14 @@ class NewNativeTargetProjectMutator {
     return this;
   }
 
+  public NewNativeTargetProjectMutator setWrapperResources(
+      ImmutableSet<AppleWrapperResourceArg> wrapperResources) {
+    this.wrapperResources = wrapperResources;
+    return this;
+  }
+
   public NewNativeTargetProjectMutator setPreBuildRunScriptPhasesFromTargetNodes(
-      Iterable<TargetNode<?>> nodes) {
+      Iterable<TargetNode<?, ?>> nodes) {
     preBuildRunScriptPhases = createScriptsForTargetNodes(nodes);
     return this;
   }
@@ -244,7 +252,7 @@ class NewNativeTargetProjectMutator {
   }
 
   public NewNativeTargetProjectMutator setPostBuildRunScriptPhasesFromTargetNodes(
-      Iterable<TargetNode<?>> nodes) {
+      Iterable<TargetNode<?, ?>> nodes) {
     postBuildRunScriptPhases = createScriptsForTargetNodes(nodes);
     return this;
   }
@@ -268,20 +276,28 @@ class NewNativeTargetProjectMutator {
     return this;
   }
 
-  public Result buildTargetAndAddToProject(PBXProject project) {
+  public Result buildTargetAndAddToProject(PBXProject project, boolean addBuildPhases) {
     PBXNativeTarget target = new PBXNativeTarget(targetName);
 
-    PBXGroup targetGroup = project.getMainGroup().getOrCreateDescendantGroupByPath(targetGroupPath);
-    targetGroup = targetGroup.getOrCreateChildGroupByName(targetName);
+    Optional<PBXGroup> optTargetGroup;
+    if (addBuildPhases) {
+      PBXGroup targetGroup =
+          project.getMainGroup().getOrCreateDescendantGroupByPath(targetGroupPath);
+      targetGroup = targetGroup.getOrCreateChildGroupByName(targetName);
 
-    // Phases
-    addRunScriptBuildPhases(target, preBuildRunScriptPhases);
-    addPhasesAndGroupsForSources(target, targetGroup);
-    addFrameworksBuildPhase(project, target);
-    addResourcesFileReference(targetGroup);
-    addResourcesBuildPhase(target, targetGroup);
-    target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) copyFilesPhases);
-    addRunScriptBuildPhases(target, postBuildRunScriptPhases);
+      // Phases
+      addRunScriptBuildPhases(target, preBuildRunScriptPhases);
+      addPhasesAndGroupsForSources(target, targetGroup);
+      addFrameworksBuildPhase(project, target);
+      addResourcesFileReference(targetGroup);
+      addResourcesBuildPhase(target, targetGroup);
+      target.getBuildPhases().addAll((Collection<? extends PBXBuildPhase>) copyFilesPhases);
+      addRunScriptBuildPhases(target, postBuildRunScriptPhases);
+
+      optTargetGroup = Optional.of(targetGroup);
+    } else {
+      optTargetGroup = Optional.empty();
+    }
 
     // Product
 
@@ -296,7 +312,7 @@ class NewNativeTargetProjectMutator {
     target.setProductType(productType);
 
     project.getTargets().add(target);
-    return new Result(target, targetGroup);
+    return new Result(target, optTargetGroup);
   }
 
   private void addPhasesAndGroupsForSources(PBXNativeTarget target, PBXGroup targetGroup) {
@@ -497,6 +513,7 @@ class NewNativeTargetProjectMutator {
     collectResourcePathsFromConstructorArgs(
         directResources,
         directAssetCatalogs,
+        ImmutableSet.of(),
         resourceFiles,
         resourceDirs,
         variantResourceFiles);
@@ -518,6 +535,7 @@ class NewNativeTargetProjectMutator {
     collectResourcePathsFromConstructorArgs(
         recursiveResources,
         recursiveAssetCatalogs,
+        wrapperResources,
         resourceFiles,
         resourceDirs,
         variantResourceFiles);
@@ -543,9 +561,10 @@ class NewNativeTargetProjectMutator {
     return phase;
   }
 
-  void collectResourcePathsFromConstructorArgs(
+  private void collectResourcePathsFromConstructorArgs(
       Set<AppleResourceDescription.Arg> resourceArgs,
       Set<AppleAssetCatalogDescription.Arg> assetCatalogArgs,
+      Set<AppleWrapperResourceArg> resourcePathArgs,
       ImmutableSet.Builder<Path> resourceFilesBuilder,
       ImmutableSet.Builder<Path> resourceDirsBuilder,
       ImmutableSet.Builder<Path> variantResourceFilesBuilder) {
@@ -558,6 +577,10 @@ class NewNativeTargetProjectMutator {
 
     for (AppleAssetCatalogDescription.Arg arg : assetCatalogArgs) {
       resourceDirsBuilder.addAll(Iterables.transform(arg.dirs, sourcePathResolver));
+    }
+
+    for (AppleWrapperResourceArg arg : resourcePathArgs) {
+      resourceDirsBuilder.add(arg.path);
     }
   }
 
@@ -621,13 +644,16 @@ class NewNativeTargetProjectMutator {
   }
 
   private ImmutableList<PBXShellScriptBuildPhase> createScriptsForTargetNodes(
-      Iterable<TargetNode<?>> nodes) throws IllegalStateException {
+      Iterable<TargetNode<?, ?>> nodes) throws IllegalStateException {
     ImmutableList.Builder<PBXShellScriptBuildPhase> builder =
       ImmutableList.builder();
-    for (TargetNode<?> node : nodes) {
+    for (TargetNode<?, ?> node : nodes) {
       PBXShellScriptBuildPhase shellScriptBuildPhase = new PBXShellScriptBuildPhase();
-      if (XcodePrebuildScriptDescription.TYPE.equals(node.getType()) ||
-          XcodePostbuildScriptDescription.TYPE.equals(node.getType())) {
+      boolean nodeIsPrebuildScript =
+          node.getDescription() instanceof XcodePrebuildScriptDescription;
+      boolean nodeIsPostbuildScript =
+          node.getDescription() instanceof XcodePostbuildScriptDescription;
+      if (nodeIsPrebuildScript || nodeIsPostbuildScript) {
         XcodeScriptDescriptionArg arg = (XcodeScriptDescriptionArg) node.getConstructorArg();
         shellScriptBuildPhase
             .getInputPaths()
@@ -639,7 +665,7 @@ class NewNativeTargetProjectMutator {
                     .toSet());
         shellScriptBuildPhase.getOutputPaths().addAll(arg.outputs);
         shellScriptBuildPhase.setShellScript(arg.cmd);
-      } else if (IosReactNativeLibraryDescription.TYPE.equals(node.getType())) {
+      } else if (node.getDescription() instanceof IosReactNativeLibraryDescription) {
         shellScriptBuildPhase.setShellScript(generateXcodeShellScript(node));
       } else {
         // unreachable
@@ -658,7 +684,7 @@ class NewNativeTargetProjectMutator {
     }
   }
 
-  private String generateXcodeShellScript(TargetNode<?> targetNode) {
+  private String generateXcodeShellScript(TargetNode<?, ?> targetNode) {
     Preconditions.checkArgument(targetNode.getConstructorArg() instanceof ReactNativeLibraryArgs);
 
     ST template;

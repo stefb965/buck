@@ -24,6 +24,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
@@ -53,8 +54,8 @@ public class DarwinLinker implements Linker, HasLinkerMap {
   }
 
   @Override
-  public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-    return tool.getDeps(resolver);
+  public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    return tool.getDeps(ruleFinder);
   }
 
   @Override
@@ -68,8 +69,8 @@ public class DarwinLinker implements Linker, HasLinkerMap {
   }
 
   @Override
-  public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
-    return tool.getEnvironment(resolver);
+  public ImmutableMap<String, String> getEnvironment() {
+    return tool.getEnvironment();
   }
 
   @Override
@@ -139,6 +140,7 @@ public class DarwinLinker implements Linker, HasLinkerMap {
       BuildRuleParams baseParams,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Iterable<? extends SourcePath> symbolFiles) {
     return ImmutableList.of(new UndefinedSymbolsArg(pathResolver, symbolFiles));
@@ -197,8 +199,8 @@ public class DarwinLinker implements Linker, HasLinkerMap {
     }
 
     @Override
-    public ImmutableCollection<BuildRule> getDeps(SourcePathResolver resolver) {
-      return pathResolver.filterBuildRuleInputs(symbolFiles);
+    public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+      return ruleFinder.filterBuildRuleInputs(symbolFiles);
     }
 
     @Override

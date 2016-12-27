@@ -28,10 +28,11 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -50,7 +51,7 @@ public class ShTestDescriptionTest {
   public void argsWithLocationMacro() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
@@ -75,7 +76,7 @@ public class ShTestDescriptionTest {
   public void envWithLocationMacro() throws Exception {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
     BuildRule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
@@ -132,7 +133,7 @@ public class ShTestDescriptionTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     Path resource = filesystem.getRootPath().getFileSystem().getPath("resource");
     filesystem.touch(resource);
-    TargetNode<?> shTestWithResources =
+    TargetNode<?, ?> shTestWithResources =
         new ShTestBuilder(target)
             .setResources(ImmutableSortedSet.of(resource))
             .build();
@@ -144,11 +145,12 @@ public class ShTestDescriptionTest {
   private RuleKey getRuleKey(BuildRule rule) {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     FileHashCache fileHashCache =
         DefaultFileHashCache.createDefaultFileHashCache(rule.getProjectFilesystem());
-    DefaultRuleKeyBuilderFactory factory =
-        new DefaultRuleKeyBuilderFactory(0, fileHashCache, pathResolver);
+    DefaultRuleKeyFactory factory =
+        new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder);
     return factory.build(rule);
   }
 

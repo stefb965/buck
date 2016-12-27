@@ -57,6 +57,7 @@ import com.facebook.buck.apple.CodeSignIdentityStore;
 import com.facebook.buck.apple.CoreDataModelDescription;
 import com.facebook.buck.apple.PrebuiltAppleFrameworkDescription;
 import com.facebook.buck.apple.ProvisioningProfileStore;
+import com.facebook.buck.apple.SceneKitAssetsDescription;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
@@ -77,8 +78,8 @@ import com.facebook.buck.d.DBinaryDescription;
 import com.facebook.buck.d.DBuckConfig;
 import com.facebook.buck.d.DLibraryDescription;
 import com.facebook.buck.d.DTestDescription;
-import com.facebook.buck.dotnet.CSharpLibraryDescription;
-import com.facebook.buck.dotnet.PrebuiltDotNetLibraryDescription;
+import com.facebook.buck.dotnet.CsharpLibraryDescription;
+import com.facebook.buck.dotnet.PrebuiltDotnetLibraryDescription;
 import com.facebook.buck.file.Downloader;
 import com.facebook.buck.file.ExplodingDownloader;
 import com.facebook.buck.file.RemoteFileDescription;
@@ -87,7 +88,7 @@ import com.facebook.buck.go.GoBinaryDescription;
 import com.facebook.buck.go.GoBuckConfig;
 import com.facebook.buck.go.GoLibraryDescription;
 import com.facebook.buck.go.GoTestDescription;
-import com.facebook.buck.graphql.GraphQlLibraryDescription;
+import com.facebook.buck.graphql.GraphqlLibraryDescription;
 import com.facebook.buck.groups.TargetGroupDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideBuckConfig;
@@ -95,7 +96,7 @@ import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.haskell.HaskellBinaryDescription;
 import com.facebook.buck.haskell.HaskellBuckConfig;
 import com.facebook.buck.haskell.HaskellLibraryDescription;
-import com.facebook.buck.haskell.PrebuiltHaskellLibraryDescription;
+import com.facebook.buck.haskell.HaskellPrebuiltLibraryDescription;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.js.AndroidReactNativeLibraryDescription;
@@ -128,10 +129,10 @@ import com.facebook.buck.lua.LuaLibraryDescription;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.ImmutableFlavor;
-import com.facebook.buck.ocaml.OCamlBinaryDescription;
-import com.facebook.buck.ocaml.OCamlBuckConfig;
-import com.facebook.buck.ocaml.OCamlLibraryDescription;
-import com.facebook.buck.ocaml.PrebuiltOCamlLibraryDescription;
+import com.facebook.buck.ocaml.OcamlBinaryDescription;
+import com.facebook.buck.ocaml.OcamlBuckConfig;
+import com.facebook.buck.ocaml.OcamlLibraryDescription;
+import com.facebook.buck.ocaml.PrebuiltOcamlLibraryDescription;
 import com.facebook.buck.python.CxxPythonExtensionDescription;
 import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
 import com.facebook.buck.python.PythonBinaryDescription;
@@ -143,6 +144,7 @@ import com.facebook.buck.rust.PrebuiltRustLibraryDescription;
 import com.facebook.buck.rust.RustBinaryDescription;
 import com.facebook.buck.rust.RustBuckConfig;
 import com.facebook.buck.rust.RustLibraryDescription;
+import com.facebook.buck.rust.RustTestDescription;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.ShBinaryDescription;
@@ -159,8 +161,8 @@ import com.facebook.buck.thrift.ThriftPythonEnhancer;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.versions.VersionedAlias;
-import com.facebook.buck.zip.ZipDescription;
+import com.facebook.buck.versions.VersionedAliasDescription;
+import com.facebook.buck.zip.ZipFileDescription;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -177,8 +179,8 @@ import org.openqa.selenium.buck.javascript.JsBinaryDescription;
 import org.openqa.selenium.buck.javascript.JsFragmentDescription;
 import org.openqa.selenium.buck.javascript.JsLibraryDescription;
 import org.openqa.selenium.buck.javascript.JsTestDescription;
-import org.openqa.selenium.buck.mozilla.XpiDescription;
-import org.openqa.selenium.buck.mozilla.XptDescription;
+import org.openqa.selenium.buck.mozilla.MozillaExtensionDescription;
+import org.openqa.selenium.buck.mozilla.MozillaXptDescription;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -258,6 +260,7 @@ public class KnownBuildRuleTypes {
   }
 
   private static ImmutableList<AppleCxxPlatform> buildAppleCxxPlatforms(
+      ProjectFilesystem filesystem,
       Supplier<Optional<Path>> appleDeveloperDirectorySupplier,
       ImmutableList<Path> extraToolchainPaths,
       ImmutableList<Path> extraPlatformPaths,
@@ -305,6 +308,7 @@ public class KnownBuildRuleTypes {
       LOG.debug("SDK %s using default version %s", sdk, targetSdkVersion);
       for (String architecture : sdk.getArchitectures()) {
         AppleCxxPlatform appleCxxPlatform = AppleCxxPlatforms.build(
+            filesystem,
             sdk,
             targetSdkVersion,
             architecture,
@@ -340,6 +344,7 @@ public class KnownBuildRuleTypes {
     SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(config);
 
     final ImmutableList<AppleCxxPlatform> appleCxxPlatforms = buildAppleCxxPlatforms(
+        filesystem,
         appleConfig.getAppleDeveloperDirectorySupplier(processExecutor),
         appleConfig.getExtraToolchainPaths(),
         appleConfig.getExtraPlatformPaths(),
@@ -412,7 +417,8 @@ public class KnownBuildRuleTypes {
           appleCxxPlatform.getCxxPlatform());
     }
 
-    CxxPlatform defaultHostCxxPlatform = DefaultCxxPlatforms.build(platform, cxxBuckConfig);
+    CxxPlatform defaultHostCxxPlatform =
+        DefaultCxxPlatforms.build(platform, filesystem, cxxBuckConfig);
     cxxSystemPlatformsBuilder.put(defaultHostCxxPlatform.getFlavor(), defaultHostCxxPlatform);
     ImmutableMap<Flavor, CxxPlatform> cxxSystemPlatformsMap = cxxSystemPlatformsBuilder.build();
 
@@ -438,15 +444,15 @@ public class KnownBuildRuleTypes {
     for (Flavor flavor: cxxFlavors) {
       if (!cxxSystemPlatformsMap.containsKey(flavor)) {
         if (possibleHostFlavors.contains(flavor)) {
-            // If a flavor is for an alternate host, it's safe to skip.
-            continue;
+          // If a flavor is for an alternate host, it's safe to skip.
+          continue;
         }
-        throw new HumanReadableException(
-            "Could not find platform for which overrides were specified: " + flavor);
+        LOG.warn("Could not find platform for which overrides were specified: " + flavor);
       }
 
       cxxOverridePlatformsMap.put(flavor, CxxPlatforms.copyPlatformWithFlavorAndConfig(
           cxxOverridePlatformsMap.get(flavor),
+          platform,
           new CxxBuckConfig(config, flavor),
           flavor));
     }
@@ -568,10 +574,13 @@ public class KnownBuildRuleTypes {
     builder.register(swiftLibraryDescription);
 
     CodeSignIdentityStore codeSignIdentityStore =
-        CodeSignIdentityStore.fromSystem(processExecutor);
+        CodeSignIdentityStore.fromSystem(
+            processExecutor,
+            appleConfig.getCodeSignIdentitiesCommand());
     ProvisioningProfileStore provisioningProfileStore =
         ProvisioningProfileStore.fromSearchPath(
             processExecutor,
+            appleConfig.getProvisioningProfileReadCommand(),
             appleConfig.getProvisioningProfileSearchPath());
 
     AppleLibraryDescription appleLibraryDescription =
@@ -582,7 +591,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForLibraries());
+            appleConfig);
     builder.register(appleLibraryDescription);
     PrebuiltAppleFrameworkDescription appleFrameworkDescription =
         new PrebuiltAppleFrameworkDescription();
@@ -595,14 +604,14 @@ public class KnownBuildRuleTypes {
             platformFlavorsToAppleCxxPlatforms,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForBinaries());
+            appleConfig);
     builder.register(appleBinaryDescription);
 
     HaskellBuckConfig haskellBuckConfig = new HaskellBuckConfig(config, executableFinder);
     builder.register(new HaskellLibraryDescription(haskellBuckConfig, cxxBuckConfig, cxxPlatforms));
     builder.register(
         new HaskellBinaryDescription(haskellBuckConfig, cxxPlatforms, defaultCxxPlatform));
-    builder.register(new PrebuiltHaskellLibraryDescription());
+    builder.register(new HaskellPrebuiltLibraryDescription());
 
     // Create an executor service exclusively for the smart dexing step.
     ListeningExecutorService dxExecutorService =
@@ -642,7 +651,7 @@ public class KnownBuildRuleTypes {
     builder.register(new AndroidManifestDescription());
     builder.register(new AndroidPrebuiltAarDescription(defaultJavacOptions));
     builder.register(new AndroidReactNativeLibraryDescription(reactNativeBuckConfig));
-    builder.register(new AndroidResourceDescription());
+    builder.register(new AndroidResourceDescription(config.isGrayscaleImageProcessingEnabled()));
     builder.register(new ApkGenruleDescription());
     builder.register(new AppleAssetCatalogDescription());
     builder.register(
@@ -659,7 +668,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform,
             codeSignIdentityStore,
             provisioningProfileStore,
-            appleConfig.getDefaultDebugInfoFormatForBinaries());
+            appleConfig);
     builder.register(appleBundleDescription);
     builder.register(new AppleResourceDescription());
     builder.register(
@@ -672,10 +681,9 @@ public class KnownBuildRuleTypes {
             codeSignIdentityStore,
             provisioningProfileStore,
             appleConfig.getAppleDeveloperDirectorySupplierForTests(processExecutor),
-            appleConfig.getDefaultDebugInfoFormatForTests(),
             defaultTestRuleTimeoutMs));
     builder.register(new CoreDataModelDescription());
-    builder.register(new CSharpLibraryDescription());
+    builder.register(new CsharpLibraryDescription());
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);
     builder.register(new CxxGenruleDescription(cxxPlatforms));
@@ -705,7 +713,7 @@ public class KnownBuildRuleTypes {
         new GoTestDescription(
             goBuckConfig,
             defaultTestRuleTimeoutMs));
-    builder.register(new GraphQlLibraryDescription());
+    builder.register(new GraphqlLibraryDescription());
     GroovyBuckConfig groovyBuckConfig = new GroovyBuckConfig(config);
     builder.register(
         new GroovyLibraryDescription(
@@ -755,15 +763,15 @@ public class KnownBuildRuleTypes {
             pythonPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
-    OCamlBuckConfig ocamlBuckConfig = new OCamlBuckConfig(platform, config);
-    builder.register(new OCamlBinaryDescription(ocamlBuckConfig));
-    builder.register(new OCamlLibraryDescription(ocamlBuckConfig));
+    OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(platform, filesystem, config);
+    builder.register(new OcamlBinaryDescription(ocamlBuckConfig));
+    builder.register(new OcamlLibraryDescription(ocamlBuckConfig));
     builder.register(new PrebuiltCxxLibraryDescription(cxxBuckConfig, cxxPlatforms));
     builder.register(PrebuiltCxxLibraryGroupDescription.of());
-    builder.register(new PrebuiltDotNetLibraryDescription());
+    builder.register(new PrebuiltDotnetLibraryDescription());
     builder.register(new PrebuiltJarDescription());
     builder.register(new PrebuiltNativeLibraryDescription());
-    builder.register(new PrebuiltOCamlLibraryDescription());
+    builder.register(new PrebuiltOcamlLibraryDescription());
     builder.register(new PrebuiltPythonLibraryDescription());
     builder.register(new ProjectConfigDescription());
     builder.register(pythonBinaryDescription);
@@ -785,6 +793,7 @@ public class KnownBuildRuleTypes {
             defaultCxxPlatform));
     builder.register(new RustBinaryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new RustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
+    builder.register(new RustTestDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new PrebuiltRustLibraryDescription(rustBuckConfig, defaultCxxPlatform));
     builder.register(new ScalaLibraryDescription(scalaConfig));
     builder.register(new ScalaTestDescription(
@@ -792,6 +801,7 @@ public class KnownBuildRuleTypes {
         defaultJavaOptionsForTests,
         defaultTestRuleTimeoutMs,
         defaultCxxPlatform));
+    builder.register(new SceneKitAssetsDescription());
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));
     ThriftBuckConfig thriftBuckConfig = new ThriftBuckConfig(config);
@@ -815,12 +825,12 @@ public class KnownBuildRuleTypes {
     builder.register(new XcodePostbuildScriptDescription());
     builder.register(new XcodePrebuildScriptDescription());
     builder.register(new XcodeWorkspaceConfigDescription());
-    builder.register(new ZipDescription());
+    builder.register(new ZipFileDescription());
     builder.register(new TargetGroupDescription());
 
     builder.setCxxPlatforms(cxxPlatforms);
     builder.setDefaultCxxPlatform(defaultCxxPlatform);
-    builder.register(VersionedAlias.of());
+    builder.register(VersionedAliasDescription.of());
 
     // TODO(simons): Added for selenium. Move to that project once the plugin API works.
     JavascriptConfig jsConfig = new JavascriptConfig(config);
@@ -829,8 +839,8 @@ public class KnownBuildRuleTypes {
     builder.register(new JsFragmentDescription(jsConfig));
     builder.register(new JsLibraryDescription());
     builder.register(new JsTestDescription(jsConfig));
-    builder.register(new XpiDescription());
-    builder.register(new XptDescription());
+    builder.register(new MozillaExtensionDescription());
+    builder.register(new MozillaXptDescription());
 
     return builder;
   }
@@ -850,7 +860,7 @@ public class KnownBuildRuleTypes {
     }
 
     public Builder register(Description<?> description) {
-      BuildRuleType type = description.getBuildRuleType();
+      BuildRuleType type = Description.getBuildRuleType(description);
       types.put(type.getName(), type);
       descriptions.put(type, description);
       return this;

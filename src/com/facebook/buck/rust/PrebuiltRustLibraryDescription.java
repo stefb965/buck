@@ -22,20 +22,20 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.util.Optional;
 
-public class PrebuiltRustLibraryDescription
-    implements Description<PrebuiltRustLibraryDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("prebuilt_rust_library");
+public class PrebuiltRustLibraryDescription implements
+    Description<PrebuiltRustLibraryDescription.Arg>,
+    VersionPropagator<PrebuiltRustLibraryDescription.Arg> {
 
   @SuppressWarnings("unused")
   private final RustBuckConfig rustBuckConfig;
@@ -44,11 +44,6 @@ public class PrebuiltRustLibraryDescription
   public PrebuiltRustLibraryDescription(RustBuckConfig rustBuckConfig, CxxPlatform cxxPlatform) {
     this.rustBuckConfig = rustBuckConfig;
     this.cxxPlatform = cxxPlatform;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -62,9 +57,12 @@ public class PrebuiltRustLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       A args) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new PrebuiltRustLibrary(
         params,
-        new SourcePathResolver(resolver),
+        pathResolver,
+        ruleFinder,
         args.rlib,
         cxxPlatform,
         args.linkStyle.orElse(Linker.LinkableDepType.STATIC),

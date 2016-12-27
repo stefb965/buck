@@ -22,30 +22,25 @@ import com.facebook.buck.python.PythonLibraryDescription.Arg;
 import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.Hint;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionPropagator;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Optional;
 
-public class PythonLibraryDescription implements Description<Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("python_library");
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
-  }
+public class PythonLibraryDescription
+    implements Description<Arg>, VersionPropagator<Arg> {
 
   @Override
   public Arg createUnpopulatedConstructorArg() {
@@ -58,52 +53,45 @@ public class PythonLibraryDescription implements Description<Arg> {
       final BuildRuleParams params,
       BuildRuleResolver resolver,
       final A args) {
-    final SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    final Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
+    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    Path baseModule = PythonUtil.getBasePath(params.getBuildTarget(), args.baseModule);
+    Optional<ImmutableMap<BuildTarget, Version>> selectedVersions =
+        targetGraph.get(params.getBuildTarget()).getSelectedVersions();
     return new PythonLibrary(
         params,
         pathResolver,
-        pythonPlatform -> ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "srcs",
-                    baseModule,
-                    Collections.singleton(args.srcs)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformSrcs",
-                    baseModule,
-                    args.platformSrcs.getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build(),
-        pythonPlatform -> ImmutableMap.<Path, SourcePath>builder()
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "resources",
-                    baseModule,
-                    Collections.singleton(args.resources)))
-            .putAll(
-                PythonUtil.toModuleMap(
-                    params.getBuildTarget(),
-                    pathResolver,
-                    "platformResources",
-                    baseModule,
-                    args.platformResources
-                        .getMatchingValues(pythonPlatform.getFlavor().toString())))
-            .build(),
+        pythonPlatform ->
+            PythonUtil.getModules(
+                params.getBuildTarget(),
+                pathResolver,
+                "srcs",
+                baseModule,
+                args.srcs,
+                args.platformSrcs,
+                pythonPlatform,
+                args.versionedSrcs,
+                selectedVersions),
+        pythonPlatform ->
+            PythonUtil.getModules(
+                params.getBuildTarget(),
+                pathResolver,
+                "resources",
+                baseModule,
+                args.resources,
+                args.platformResources,
+                pythonPlatform,
+                args.versionedResources,
+                selectedVersions),
         args.zipSafe);
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg implements HasTests {
     public SourceList srcs = SourceList.EMPTY;
+    public Optional<VersionMatchedCollection<SourceList>> versionedSrcs;
     public PatternMatchedCollection<SourceList> platformSrcs = PatternMatchedCollection.of();
     public SourceList resources = SourceList.EMPTY;
+    public Optional<VersionMatchedCollection<SourceList>> versionedResources;
     public PatternMatchedCollection<SourceList> platformResources = PatternMatchedCollection.of();
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
     public Optional<String> baseModule;
@@ -114,7 +102,6 @@ public class PythonLibraryDescription implements Description<Arg> {
     public ImmutableSortedSet<BuildTarget> getTests() {
       return tests;
     }
-
   }
 
 }

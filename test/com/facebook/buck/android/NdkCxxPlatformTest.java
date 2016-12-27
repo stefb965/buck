@@ -22,7 +22,6 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessAndCompile;
-import com.facebook.buck.cxx.CxxPreprocessMode;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.Linker;
@@ -41,9 +40,10 @@ import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.keys.DefaultRuleKeyBuilderFactory;
+import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.environment.Platform;
@@ -70,7 +70,6 @@ public class NdkCxxPlatformTest {
   public TemporaryPaths tmp = new TemporaryPaths();
 
   enum Operation {
-    PREPROCESS,
     COMPILE,
     PREPROCESS_AND_COMPILE,
   }
@@ -81,16 +80,18 @@ public class NdkCxxPlatformTest {
       ImmutableMap<NdkCxxPlatforms.TargetCpuType, NdkCxxPlatform> cxxPlatforms) {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     String source = "source.cpp";
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
             0,
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
                     .put("source.cpp", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, RuleKey> ruleKeys =
         ImmutableMap.builder();
@@ -99,6 +100,7 @@ public class NdkCxxPlatformTest {
           .setParams(new FakeBuildRuleParamsBuilder(target).build())
           .setResolver(resolver)
           .setPathResolver(pathResolver)
+          .setRuleFinder(ruleFinder)
           .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
           .setCxxPlatform(entry.getValue().getCxxPlatform())
           .setPicType(CxxSourceRuleFactory.PicType.PIC)
@@ -112,16 +114,6 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX,
                       new FakeSourcePath(source),
-                      ImmutableList.of()),
-                  CxxPreprocessMode.COMBINED);
-          break;
-        case PREPROCESS:
-          rule =
-              cxxSourceRuleFactory.createPreprocessBuildRule(
-                  source,
-                  CxxSource.of(
-                      CxxSource.Type.CXX,
-                      new FakeSourcePath(source),
                       ImmutableList.of()));
           break;
         case COMPILE:
@@ -131,13 +123,12 @@ public class NdkCxxPlatformTest {
                   CxxSource.of(
                       CxxSource.Type.CXX_CPP_OUTPUT,
                       new FakeSourcePath(source),
-                      ImmutableList.of()),
-                  false);
+                      ImmutableList.of()));
           break;
         default:
           throw new IllegalStateException();
       }
-      ruleKeys.put(entry.getKey(), ruleKeyBuilderFactory.build(rule));
+      ruleKeys.put(entry.getKey(), ruleKeyFactory.build(rule));
     }
     return ruleKeys.build();
   }
@@ -148,15 +139,17 @@ public class NdkCxxPlatformTest {
       throws NoSuchBuildTargetException {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    DefaultRuleKeyBuilderFactory ruleKeyBuilderFactory =
-        new DefaultRuleKeyBuilderFactory(
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
             0,
             FakeFileHashCache.createFromStrings(
                 ImmutableMap.<String, String>builder()
                     .put("input.o", Strings.repeat("a", 40))
                     .build()),
-            pathResolver);
+            pathResolver,
+            ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     ImmutableMap.Builder<NdkCxxPlatforms.TargetCpuType, RuleKey> ruleKeys =
         ImmutableMap.builder();
@@ -167,6 +160,7 @@ public class NdkCxxPlatformTest {
           new FakeBuildRuleParamsBuilder(target).build(),
           resolver,
           pathResolver,
+          ruleFinder,
           target,
           Linker.LinkType.EXECUTABLE,
           Optional.empty(),
@@ -179,7 +173,7 @@ public class NdkCxxPlatformTest {
           NativeLinkableInput.builder()
               .setArgs(SourcePathArg.from(pathResolver, new FakeSourcePath("input.o")))
               .build());
-      ruleKeys.put(entry.getKey(), ruleKeyBuilderFactory.build(rule));
+      ruleKeys.put(entry.getKey(), ruleKeyFactory.build(rule));
     }
     return ruleKeys.build();
   }
@@ -212,8 +206,6 @@ public class NdkCxxPlatformTest {
       Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
           preprocessAndCompileRukeKeys = Maps.newHashMap();
       Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
-          preprocessRukeKeys = Maps.newHashMap();
-      Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
           compileRukeKeys = Maps.newHashMap();
       Map<String, ImmutableMap<NdkCxxPlatforms.TargetCpuType, RuleKey>>
           linkRukeKeys = Maps.newHashMap();
@@ -244,9 +236,6 @@ public class NdkCxxPlatformTest {
           preprocessAndCompileRukeKeys.put(
               String.format("NdkCxxPlatform(%s, %s)", dir, platform),
               constructCompileRuleKeys(Operation.PREPROCESS_AND_COMPILE, platforms));
-          preprocessRukeKeys.put(
-              String.format("NdkCxxPlatform(%s, %s)", dir, platform),
-              constructCompileRuleKeys(Operation.PREPROCESS, platforms));
           compileRukeKeys.put(
               String.format("NdkCxxPlatform(%s, %s)", dir, platform),
               constructCompileRuleKeys(Operation.COMPILE, platforms));
@@ -262,10 +251,6 @@ public class NdkCxxPlatformTest {
       assertThat(
           Arrays.toString(preprocessAndCompileRukeKeys.entrySet().toArray()),
           Sets.newHashSet(preprocessAndCompileRukeKeys.values()),
-          Matchers.hasSize(1));
-      assertThat(
-          Arrays.toString(preprocessRukeKeys.entrySet().toArray()),
-          Sets.newHashSet(preprocessRukeKeys.values()),
           Matchers.hasSize(1));
       assertThat(
           Arrays.toString(compileRukeKeys.entrySet().toArray()),

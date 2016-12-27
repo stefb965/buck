@@ -38,11 +38,16 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.versions.Version;
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -68,6 +73,43 @@ public class PythonUtil {
               "location", new LocationMacroExpander()));
 
   private PythonUtil() {}
+
+  public static ImmutableMap<Path, SourcePath> getModules(
+      BuildTarget target,
+      SourcePathResolver resolver,
+      String parameter,
+      Path baseModule,
+      SourceList items,
+      PatternMatchedCollection<SourceList> platformItems,
+      PythonPlatform pythonPlatform,
+      Optional<VersionMatchedCollection<SourceList>> versionItems,
+      Optional<ImmutableMap<BuildTarget, Version>> versions) {
+    return ImmutableMap.<Path, SourcePath>builder()
+        .putAll(
+            PythonUtil.toModuleMap(
+                target,
+                resolver,
+                parameter,
+                baseModule,
+                ImmutableList.of(items)))
+        .putAll(
+            PythonUtil.toModuleMap(
+                target,
+                resolver,
+                "platform" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
+                baseModule,
+                platformItems.getMatchingValues(pythonPlatform.getFlavor().toString())))
+        .putAll(
+            PythonUtil.toModuleMap(
+                target,
+                resolver,
+                "versioned" + CaseFormat.LOWER_HYPHEN.to(CaseFormat.UPPER_CAMEL, parameter),
+                baseModule,
+                versions.isPresent() && versionItems.isPresent() ?
+                    versionItems.get().getMatchingValues(versions.get()) :
+                    ImmutableList.of()))
+        .build();
+  }
 
   public static ImmutableMap<Path, SourcePath> toModuleMap(
       BuildTarget target,
@@ -113,13 +155,13 @@ public class PythonUtil {
   }
 
   public static ImmutableSortedSet<BuildRule> getDepsFromComponents(
-      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       PythonPackageComponents components) {
     return ImmutableSortedSet.<BuildRule>naturalOrder()
-        .addAll(resolver.filterBuildRuleInputs(components.getModules().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getResources().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getNativeLibraries().values()))
-        .addAll(resolver.filterBuildRuleInputs(components.getPrebuiltLibraries()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getModules().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getResources().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getNativeLibraries().values()))
+        .addAll(ruleFinder.filterBuildRuleInputs(components.getPrebuiltLibraries()))
         .build();
   }
 
@@ -127,6 +169,7 @@ public class PythonUtil {
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       final PythonPackageComponents packageComponents,
       final PythonPlatform pythonPlatform,
       CxxBuckConfig cxxBuckConfig,
@@ -200,6 +243,7 @@ public class PythonUtil {
               params,
               ruleResolver,
               pathResolver,
+              ruleFinder,
               cxxBuckConfig,
               cxxPlatform,
               extraLdflags,

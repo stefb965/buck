@@ -21,6 +21,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.LinkerMapMode;
 import com.facebook.buck.cxx.NativeLinkable;
 import com.facebook.buck.cxx.NativeLinkables;
 import com.facebook.buck.cxx.StripStyle;
@@ -38,7 +39,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
@@ -48,6 +48,7 @@ import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -75,8 +76,6 @@ public class AppleTestDescription implements
     Description<AppleTestDescription.Arg>,
     Flavored,
     ImplicitDepsInferringDescription<AppleTestDescription.Arg> {
-
-  public static final BuildRuleType TYPE = BuildRuleType.of("apple_test");
 
   /**
    * Flavors for the additional generated build rules.
@@ -106,7 +105,6 @@ public class AppleTestDescription implements
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
   private final Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier;
-  private final AppleDebugFormat defaultDebugFormat;
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public AppleTestDescription(
@@ -118,7 +116,6 @@ public class AppleTestDescription implements
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
       Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier,
-      AppleDebugFormat defaultDebugFormat,
       Optional<Long> defaultTestRuleTimeoutMs) {
     this.appleConfig = appleConfig;
     this.appleLibraryDescription = appleLibraryDescription;
@@ -128,13 +125,7 @@ public class AppleTestDescription implements
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
     this.xcodeDeveloperDirectorySupplier = xcodeDeveloperDirectorySupplier;
-    this.defaultDebugFormat = defaultDebugFormat;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
-  }
-
-  @Override
-  public BuildRuleType getBuildRuleType() {
-    return TYPE;
   }
 
   @Override
@@ -156,7 +147,8 @@ public class AppleTestDescription implements
       BuildRuleResolver resolver,
       A args) throws NoSuchBuildTargetException {
     AppleDebugFormat debugFormat = AppleDebugFormat.FLAVOR_DOMAIN
-        .getValue(params.getBuildTarget()).orElse(defaultDebugFormat);
+        .getValue(params.getBuildTarget())
+        .orElse(appleConfig.getDefaultDebugInfoFormatForTests());
     if (params.getBuildTarget().getFlavors().contains(debugFormat.getFlavor())) {
       params = params.withoutFlavor(debugFormat.getFlavor());
     }
@@ -222,7 +214,8 @@ public class AppleTestDescription implements
 
     BuildTarget libraryTarget = params.getBuildTarget()
         .withAppendedFlavors(extraFlavorsBuilder.build())
-        .withAppendedFlavors(debugFormat.getFlavor());
+        .withAppendedFlavors(debugFormat.getFlavor())
+        .withAppendedFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     BuildRule library = createTestLibraryRule(
         targetGraph,
         params,
@@ -235,8 +228,8 @@ public class AppleTestDescription implements
       return library;
     }
 
-
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathResolver sourcePathResolver = new SourcePathResolver(ruleFinder);
     String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
 
     BuildRule bundle = AppleDescriptions.createAppleBundle(
@@ -248,6 +241,7 @@ public class AppleTestDescription implements
             params.getBuildTarget().withAppendedFlavors(
                 BUNDLE_FLAVOR,
                 debugFormat.getFlavor(),
+                LinkerMapMode.NO_LINKER_MAP.getFlavor(),
                 AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
             // We have to add back the original deps here, since they're likely
             // stripped from the library link above (it doesn't actually depend on them).
@@ -267,7 +261,9 @@ public class AppleTestDescription implements
         args.infoPlistSubstitutions,
         args.deps,
         args.tests,
-        debugFormat);
+        debugFormat,
+        appleConfig.useDryRunCodeSigning(),
+        appleConfig.cacheBundlesAndPackages());
 
     Optional<SourcePath> xctool = getXctool(params, resolver, sourcePathResolver);
 
@@ -283,6 +279,7 @@ public class AppleTestDescription implements
             Suppliers.ofInstance(ImmutableSortedSet.of(bundle)),
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         sourcePathResolver,
+        ruleFinder,
         bundle,
         testHostInfo.map(TestHostInfo::getTestHostApp),
         args.contacts,
@@ -418,7 +415,7 @@ public class AppleTestDescription implements
           "Apple test rule '%s' has test_host_app '%s' not of type '%s'.",
           params.getBuildTarget(),
           testHostAppBuildTarget,
-          AppleBundleDescription.TYPE);
+          Description.getBuildRuleType(AppleBundleDescription.class));
     }
 
     AppleBundle testHostApp = (AppleBundle) rule;
