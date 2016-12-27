@@ -28,6 +28,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -37,8 +38,10 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirAndSymlinkFileStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.zip.AppendToZipStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 
@@ -50,7 +53,7 @@ import javax.annotation.Nullable;
 
 @BuildsAnnotationProcessor
 public class JavaBinary extends AbstractBuildRule
-    implements BinaryBuildRule, HasClasspathEntries {
+    implements BinaryBuildRule, HasClasspathEntries, HasPostBuildSteps {
 
   private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(PACKAGING);
 
@@ -154,6 +157,29 @@ public class JavaBinary extends AbstractBuildRule
 
     buildableContext.recordArtifact(outputFile);
     return commands.build();
+  }
+
+  @Override
+  public ImmutableList<Step> getPostBuildSteps() {
+    ImmutableList.Builder<Step> steps = ImmutableList.builder();
+
+    Path scratchDir = BuildTargets.getScratchPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "lib__%s__stamp");
+
+    Path stampFile = getProjectFilesystem()
+        .resolve(scratchDir)
+        .resolve("build-stamp.properties");
+
+    // Create a file with the build information, and add it to the META-INF directory of the output
+    steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), stampFile.getParent()));
+    steps.add(new CreateJavaBuildStampStep(stampFile));
+    steps.add(new AppendToZipStep(
+        getProjectFilesystem().resolve(getPathToOutput()),
+        ImmutableMap.of(stampFile, "META-INF/build-stamp.properties")));
+
+    return steps.build();
   }
 
   @Override
